@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of Odoo. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+    <record id="input_overtime" model="hr.payslip.input.type">
+        <field name="name">Overtime</field>
+        <field name="code">OT</field>
+        <field name="country_id" ref="base.ca"/>
+        <field name="struct_ids" eval="[(4, ref('hr_payroll_structure_ca_employee_salary'))]"/>
+    </record>
+    <record id="input_overtime_hours" model="hr.payslip.input.type">
+        <field name="name">Overtime Hours</field>
+        <field name="code">OT_HOURS</field>
+        <field name="country_id" ref="base.ca"/>
+        <field name="struct_ids" eval="[(4, ref('hr_payroll_structure_ca_employee_salary'))]"/>
+    </record>
+    <record id="input_bonus" model="hr.payslip.input.type">
+        <field name="name">Bonus</field>
+        <field name="code">BONUS</field>
+        <field name="country_id" ref="base.ca"/>
+        <field name="struct_ids" eval="[(4, ref('hr_payroll_structure_ca_employee_salary'))]"/>
+    </record>
+    <record id="input_commission" model="hr.payslip.input.type">
+        <field name="name">Commission</field>
+        <field name="code">COMMISSION</field>
+        <field name="country_id" ref="base.ca"/>
+        <field name="struct_ids" eval="[(4, ref('hr_payroll_structure_ca_employee_salary'))]"/>
+    </record>
+    <record id="input_rrsp_deduction" model="hr.payslip.input.type">
+        <field name="name">RRSP Deduction</field>
+        <field name="code">RRSP</field>
+        <field name="country_id" ref="base.ca"/>
+        <field name="struct_ids" eval="[(4, ref('hr_payroll_structure_ca_employee_salary'))]"/>
+    </record>
+    <record id="input_union_dues" model="hr.payslip.input.type">
+        <field name="name">Union Dues</field>
+        <field name="code">UNION</field>
+        <field name="country_id" ref="base.ca"/>
+        <field name="struct_ids" eval="[(4, ref('hr_payroll_structure_ca_employee_salary'))]"/>
+    </record>
+    <record id="input_vacation_pay" model="hr.payslip.input.type">
+        <field name="name">Vacation Pay</field>
+        <field name="code">VAC_PAY</field>
+        <field name="country_id" ref="base.ca"/>
+        <field name="struct_ids" eval="[(4, ref('hr_payroll_structure_ca_employee_salary'))]"/>
+    </record>
+</odoo>

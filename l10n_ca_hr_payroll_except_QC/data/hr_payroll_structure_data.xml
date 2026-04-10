@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+    <record id="hr_payroll_structure_ca_employee_salary" model="hr.payroll.structure">
+        <field name="name">Canadian Employee Salary</field>
+        <field name="type_id" ref="structure_type_employee_ca"/>
+        <field name="country_id" ref="base.ca"/>
+    </record>
+</odoo>

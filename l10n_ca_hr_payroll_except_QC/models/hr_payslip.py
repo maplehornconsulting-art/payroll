@@ -10,8 +10,8 @@ class HrPayslip(models.Model):
     def _get_paid_amount(self):
         self.ensure_one()
         if self.struct_id.country_id.code == 'CA':
-            return self._get_worked_days_line_amount('WORK100') + self._get_worked_days_line_amount('LEAVE90')
-        return super()._get_paid_amount()
+            total = sum(line.amount for line in self.worked_days_line_ids if line.code in ('WORK100', 'LEAVE90'))
+            return total if total > 0 else super()._get_paid_amount()
 
     def _l10n_ca_get_payslip_line_values(self, code_list, employee_id=None, compute_sum=False):
         """Compute Canadian payroll line values using rule parameters."""

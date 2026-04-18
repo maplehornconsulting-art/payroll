@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "jurisdiction": "CA",
   "effective_date": "2026-07-01",
-  "published_at": "2026-04-18T01:52:24Z",
+  "published_at": "2026-04-18T01:56:10Z",
   "source_urls": [
     "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/payroll/t4127-payroll-deductions-formulas-computer-programs.html",
     "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/payroll/payroll-deductions-contributions/canada-pension-plan-cpp/cpp-contribution-rates-maximums-exemptions.html",
@@ -337,5 +337,5 @@
       ]
     }
   },
-  "checksum_sha256": "d2d37a536fab5bf459f10fab154b1601dbe4a10f6b47b03aeee1cbaddb86cc3f"
+  "checksum_sha256": "f6a70f396350a6ecca79a8126613f0157ad645297209f4d733c658cc3660fba1"
 }

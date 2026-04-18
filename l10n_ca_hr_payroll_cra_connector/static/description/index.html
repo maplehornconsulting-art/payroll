@@ -18,6 +18,9 @@
         .disclaimer strong { color: #856404; }
         ul { padding-left: 20px; line-height: 1.8; }
         .badge { display: inline-block; background: #875a7b; color: white; border-radius: 12px; padding: 2px 12px; font-size: 0.85em; margin: 2px; }
+        .badge-free { display: inline-block; background: #28a745; color: white; border-radius: 12px; padding: 4px 16px; font-size: 1em; font-weight: bold; margin: 2px; }
+        .free-note { background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px; padding: 16px 20px; margin: 20px 0; }
+        .free-note strong { color: #155724; }
         .footer { background: #f5f5f5; text-align: center; padding: 20px; font-size: 0.9em; color: #666; margin-top: 40px; }
     </style>
 </head>
@@ -27,12 +30,20 @@
     <h1>🍁 Canada – Payroll CRA Auto-Update Connector</h1>
     <p>Automatically fetch and admin-approve CRA payroll tax changes in Odoo</p>
     <p style="margin-top:10px;">
+        <span class="badge-free">⭐ Free</span>
         <span class="badge">CPP / CPP2</span>
         <span class="badge">EI Premiums</span>
         <span class="badge">Federal Tax Brackets</span>
         <span class="badge">Provincial Tax</span>
         <span class="badge">BPA</span>
     </p>
+</div>
+
+<div class="section">
+    <div class="free-note">
+        <strong>⭐ This module is free.</strong> It requires the paid base module
+        <strong>Canada – Payroll</strong> (<code>l10n_ca_hr_payroll_except_QC</code>) to function.
+    </div>
 </div>
 
 <div class="section">
@@ -115,6 +126,23 @@
         <li>Provincial/territorial BPA and tax brackets for all provinces except Quebec</li>
     </ul>
     <p><em>Quebec data is out of scope — matches the base <code>l10n_ca_hr_payroll_except_QC</code> module.</em></p>
+</div>
+
+<div class="section">
+    <h2>Why is this free?</h2>
+    <p>
+        This connector is offered free of charge to support customers of the base
+        <strong>Canada – Payroll</strong> (<code>l10n_ca_hr_payroll_except_QC</code>) module and to
+        encourage adoption of automated, human-approved tax updates. The underlying CRA payroll tax
+        data is published openly by the Government of Canada under the
+        <a href="https://open.canada.ca/en/open-government-licence-canada">Open Government Licence – Canada</a>,
+        making it straightforward to redistribute in a structured, machine-readable format.
+    </p>
+    <p>
+        <strong>Note:</strong> The base <strong>Canada – Payroll</strong>
+        (<code>l10n_ca_hr_payroll_except_QC</code>) module is a <em>paid</em> module and is sold
+        separately. This connector add-on has no standalone function without it.
+    </p>
 </div>
 
 <div class="footer">

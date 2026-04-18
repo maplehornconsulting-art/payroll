@@ -6,12 +6,14 @@
     'category': 'Human Resources/Payroll',
     'countries': ['ca'],
     'summary': (
-        'Automatically fetch CRA federal & provincial payroll tax updates '
+        'Free auto-update connector for Canadian payroll tax values '
         '(CPP, EI, federal/provincial brackets, BPA) — admin-approved'
     ),
     'description': """
 Canada Payroll — CRA Auto-Update Connector
 ==========================================
+
+* Free companion module for Canada - Payroll (l10n_ca_hr_payroll_except_QC).
 
 **What it does**
 
@@ -39,8 +41,6 @@ provided. Always have a qualified payroll professional review any tax changes be
     'website': 'https://www.maplehornconsulting.com',
     'support': 'info@maplehornconsulting.com',
     'license': 'OPL-1',
-    'price': 99.00,
-    'currency': 'USD',
     'images': ['static/description/banner.png'],
     'application': False,
     'auto_install': False,

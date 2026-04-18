@@ -1,0 +1,13 @@
+# CRA feed cache (raw HTML downloads — do not commit)
+cra_feed/cache/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/

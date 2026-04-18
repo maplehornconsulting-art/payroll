@@ -6,7 +6,7 @@
         <field name="name">cra.tax.update.tree</field>
         <field name="model">cra.tax.update</field>
         <field name="arch" type="xml">
-            <list string="CRA Tax Updates" decoration-info="state == 'draft'" decoration-success="state == 'applied'" decoration-warning="state == 'reviewed'" decoration-muted="state in ('rejected', 'superseded')">
+            <list string="CRA Tax Updates" decoration-info="state == 'draft'" decoration-success="state == 'applied'" decoration-warning="state == 'reviewed'" decoration-muted="state in ('rejected','superseded')">
                 <field name="name"/>
                 <field name="effective_date"/>
                 <field name="published_at"/>
@@ -107,9 +107,6 @@
                 <filter string="Applied" name="applied" domain="[('state', '=', 'applied')]"/>
                 <filter string="Rejected" name="rejected" domain="[('state', '=', 'rejected')]"/>
                 <filter string="Superseded" name="superseded" domain="[('state', '=', 'superseded')]"/>
-                <separator/>
-                <filter string="This Year" name="this_year"
-                        domain="[('effective_date', '&gt;=', (context_today()).strftime('%Y-01-01'))]"/>
                 <group expand="0" string="Group By">
                     <filter string="State" name="group_state" context="{'group_by': 'state'}"/>
                     <filter string="Effective Date" name="group_date" context="{'group_by': 'effective_date'}"/>

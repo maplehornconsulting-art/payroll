@@ -1,0 +1,74 @@
+name: Scrape CRA & Publish Feed
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # daily at 06:00 UTC
+  workflow_dispatch:        # manual trigger
+  push:
+    branches: [main]
+    paths:
+      - "cra_feed/**"
+
+concurrency:
+  group: cra-feed
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  scrape-and-publish:
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r cra_feed/requirements.txt
+
+      - name: Run scraper
+        run: python -m cra_feed.scraper
+
+      - name: Import GPG key and sign JSON files
+        if: ${{ env.CRA_FEED_GPG_KEY != '' }}
+        env:
+          CRA_FEED_GPG_KEY: ${{ secrets.CRA_FEED_GPG_KEY }}
+        run: |
+          echo "$CRA_FEED_GPG_KEY" | gpg --batch --import
+          for f in cra_feed/output/v1/ca/*.json; do
+            gpg --batch --yes --detach-sign --armor "$f"
+            mv "${f}.asc" "${f}.sig"
+          done
+
+      - name: Commit changes if JSON changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add cra_feed/output/
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: update CRA feed [skip ci]"
+            git push
+          fi
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: cra_feed/output
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,5 +1,7 @@
 # Canada – Payroll CRA Auto-Update Connector (`l10n_ca_hr_payroll_cra_connector`)
 
+> **Pricing:** This connector module is **free**. It requires the paid base module **Canada – Payroll** (`l10n_ca_hr_payroll_except_QC`) to function.
+
 > **⚠ Disclaimer:** This module is **not** an official product of the Canada Revenue Agency (CRA)
 > or the Government of Canada. Values are derived from publicly available CRA publications and are
 > provided for convenience only. All payroll calculations **must be reviewed and approved by a

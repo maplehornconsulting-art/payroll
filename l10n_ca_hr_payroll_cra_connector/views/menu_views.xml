@@ -1,11 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
 <odoo>
+    <!-- Top-level menu for the CRA connector.
+         We do not attach under hr_payroll.* because that xmlid varies
+         between Odoo versions and Community/Enterprise. -->
+    <menuitem
+        id="menu_cra_root"
+        name="CRA Tax Updates"
+        sequence="95"/>
+
     <menuitem
         id="menu_cra_tax_update"
-        name="CRA Tax Updates"
-        parent="hr_payroll.menu_payroll_configuration"
+        name="Updates"
+        parent="menu_cra_root"
         action="action_cra_tax_update"
-        sequence="90"
-        groups="hr_payroll.group_hr_payroll_manager"/>
+        sequence="10"/>
 </odoo>

@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
@@ -192,10 +192,11 @@ class CraTaxUpdate(models.Model):
         published_at = None
         if published_at_str:
             try:
-                # Feed uses ISO 8601 with trailing Z
+                # Feed uses ISO 8601 with trailing Z; Odoo stores datetimes
+                # as naive UTC so do NOT attach tzinfo.
                 published_at = datetime.strptime(
                     published_at_str, "%Y-%m-%dT%H:%M:%SZ"
-                ).replace(tzinfo=timezone.utc)
+                )
             except ValueError:
                 _logger.warning(
                     "CRA Tax Update: could not parse published_at=%s", published_at_str
@@ -461,8 +462,8 @@ class CraTaxUpdate(models.Model):
         prefix = _("Auto-applied") if auto else _("Applied")
         self.message_post(
             body=_(
-                "%(prefix)s by %(user)s. "
-                "%(applied)d line(s) written to hr.rule.parameter."
+                "%s by %s. "
+                "%d line(s) written to hr.rule.parameter."
             )
             % {
                 "prefix": prefix,

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+    <record id="view_cra_tax_update_apply_wizard_form" model="ir.ui.view">
+        <field name="name">cra.tax.update.apply.wizard.form</field>
+        <field name="model">cra.tax.update.apply.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Apply CRA Tax Update">
+                <sheet>
+                    <div class="alert alert-warning" role="alert">
+                        <strong>Important Disclaimer</strong><br/>
+                        This module is <strong>not</strong> an official product of the Canada Revenue Agency (CRA).
+                        Values are derived from publicly available CRA publications.
+                        <strong>A qualified Canadian payroll professional must review these changes
+                        before applying them to live payroll.</strong>
+                        No warranty of any kind is provided.
+                    </div>
+                    <group>
+                        <field name="update_id" readonly="1"/>
+                    </group>
+                    <field name="line_ids" nolabel="1">
+                        <list editable="bottom" decoration-muted="change_status == 'unchanged'" decoration-success="change_status == 'changed'" decoration-info="change_status == 'new'">
+                            <field name="selected" widget="boolean_toggle"/>
+                            <field name="path"/>
+                            <field name="rule_parameter_xml_id" string="Mapped Parameter"/>
+                            <field name="old_value"/>
+                            <field name="new_value"/>
+                            <field name="change_status" widget="badge"/>
+                        </list>
+                    </field>
+                    <group>
+                        <field name="confirm_disclaimer" widget="boolean"
+                               string="I confirm that a qualified payroll professional has reviewed these changes"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_apply" string="Apply" type="object"
+                            class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

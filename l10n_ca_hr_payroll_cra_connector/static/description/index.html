@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Canada – Payroll CRA Auto-Update Connector</title>
+    <style>
+        body { font-family: 'Roboto', Arial, sans-serif; color: #333; margin: 0; padding: 0; }
+        .header { background: #875a7b; color: white; padding: 40px 20px; text-align: center; }
+        .header h1 { margin: 0 0 10px; font-size: 2em; }
+        .header p { margin: 0; font-size: 1.1em; opacity: 0.9; }
+        .section { max-width: 900px; margin: 40px auto; padding: 0 20px; }
+        h2 { color: #875a7b; border-bottom: 2px solid #875a7b; padding-bottom: 8px; }
+        .steps { display: flex; gap: 20px; flex-wrap: wrap; margin: 20px 0; }
+        .step { flex: 1; min-width: 220px; background: #f9f5fb; border-left: 4px solid #875a7b; padding: 16px 20px; border-radius: 4px; }
+        .step .num { font-size: 2em; color: #875a7b; font-weight: bold; }
+        .disclaimer { background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 16px 20px; margin: 20px 0; }
+        .disclaimer strong { color: #856404; }
+        ul { padding-left: 20px; line-height: 1.8; }
+        .badge { display: inline-block; background: #875a7b; color: white; border-radius: 12px; padding: 2px 12px; font-size: 0.85em; margin: 2px; }
+        .footer { background: #f5f5f5; text-align: center; padding: 20px; font-size: 0.9em; color: #666; margin-top: 40px; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>🍁 Canada – Payroll CRA Auto-Update Connector</h1>
+    <p>Automatically fetch and admin-approve CRA payroll tax changes in Odoo</p>
+    <p style="margin-top:10px;">
+        <span class="badge">CPP / CPP2</span>
+        <span class="badge">EI Premiums</span>
+        <span class="badge">Federal Tax Brackets</span>
+        <span class="badge">Provincial Tax</span>
+        <span class="badge">BPA</span>
+    </p>
+</div>
+
+<div class="section">
+    <h2>What it does</h2>
+    <p>
+        This module connects your Odoo payroll to the MapleHorn CRA payroll tax feed — a free,
+        machine-readable JSON feed that publishes the latest Canadian federal and provincial payroll
+        tax parameters (CPP, EI, federal brackets, BPA, and more) derived from official CRA
+        publications.
+    </p>
+    <p>
+        Once installed, your Odoo instance will automatically check for new tax data every day and
+        notify your payroll manager when an update is detected. No more manually editing tax brackets
+        every January or July.
+    </p>
+    <div class="disclaimer">
+        <strong>⚠ Disclaimer:</strong> This module is <strong>not</strong> an official product of
+        the Canada Revenue Agency (CRA). All payroll changes <strong>must be reviewed and approved
+        by a qualified Canadian payroll professional</strong> before being applied to live payroll.
+        No warranty of any kind is provided.
+    </div>
+</div>
+
+<div class="section">
+    <h2>How it works — 3 easy steps</h2>
+    <div class="steps">
+        <div class="step">
+            <div class="num">1</div>
+            <strong>Automatic Fetch</strong><br/>
+            A daily cron job fetches the CRA feed, verifies the SHA-256 checksum, and creates a
+            draft <em>CRA Tax Update</em> record if new data is detected.
+        </div>
+        <div class="step">
+            <div class="num">2</div>
+            <strong>Human Review</strong><br/>
+            Your payroll manager receives an email notification and an Odoo activity.
+            Open the record to see a side-by-side comparison of old vs new values for every
+            tax parameter — CPP rate, EI rate, federal brackets, provincial BPAs, and more.
+        </div>
+        <div class="step">
+            <div class="num">3</div>
+            <strong>One-Click Apply</strong><br/>
+            After review, click <strong>Apply…</strong>, confirm the disclaimer, and the module
+            writes the new values into <code>hr.rule.parameter</code> with the correct effective
+            date. Payslips computed on or after that date automatically use the new values.
+        </div>
+    </div>
+</div>
+
+<div class="section">
+    <h2>Security &amp; compliance</h2>
+    <ul>
+        <li>Human-approval gate is <strong>on by default</strong> — nothing changes without your explicit click.</li>
+        <li>Every update stores the full JSON payload for audit purposes.</li>
+        <li>SHA-256 checksum is verified before any record is created.</li>
+        <li>Optional GPG signature verification supported (requires <code>python-gnupg</code>).</li>
+        <li>All write access gated by <code>hr_payroll.group_hr_payroll_manager</code>.</li>
+        <li>Full chatter history on every update record (who reviewed, who applied, when).</li>
+    </ul>
+</div>
+
+<div class="section">
+    <h2>Requirements</h2>
+    <ul>
+        <li>Odoo 19 (Community or Enterprise)</li>
+        <li>Requires <strong><code>l10n_ca_hr_payroll_except_QC</code></strong> (Canada – Payroll, sold separately)</li>
+        <li>Outbound internet access to <code>maplehornconsulting-art.github.io</code></li>
+        <li>Not available on Odoo Online (SaaS) — Odoo.sh and self-hosted only</li>
+    </ul>
+</div>
+
+<div class="section">
+    <h2>What's covered</h2>
+    <ul>
+        <li>CPP employee rate, YMPE, basic exemption</li>
+        <li>CPP2 rate, YAMPE</li>
+        <li>EI employee premium rate, maximum insurable earnings</li>
+        <li>Federal income tax brackets (5 brackets)</li>
+        <li>Federal Basic Personal Amount (BPA min / max)</li>
+        <li>Provincial/territorial BPA and tax brackets for all provinces except Quebec</li>
+    </ul>
+    <p><em>Quebec data is out of scope — matches the base <code>l10n_ca_hr_payroll_except_QC</code> module.</em></p>
+</div>
+
+<div class="footer">
+    <p>
+        &copy; 2026 MapleHorn Consulting Inc. &nbsp;|&nbsp;
+        <a href="https://www.maplehornconsulting.com">maplehornconsulting.com</a> &nbsp;|&nbsp;
+        <a href="mailto:info@maplehornconsulting.com">info@maplehornconsulting.com</a>
+    </p>
+    <p>License: OPL-1 &nbsp;|&nbsp; Not an official CRA product</p>
+</div>
+
+</body>
+</html>

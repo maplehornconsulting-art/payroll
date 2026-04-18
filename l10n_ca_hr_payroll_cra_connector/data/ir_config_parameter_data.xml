@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+    <record id="param_cra_feed_url" model="ir.config_parameter">
+        <field name="key">l10n_ca_hr_payroll_cra_connector.feed_url</field>
+        <field name="value">https://maplehornconsulting-art.github.io/payroll/v1/ca/latest.json</field>
+    </record>
+    <record id="param_cra_feed_auto_apply" model="ir.config_parameter">
+        <field name="key">l10n_ca_hr_payroll_cra_connector.auto_apply</field>
+        <field name="value">False</field>
+    </record>
+</odoo>

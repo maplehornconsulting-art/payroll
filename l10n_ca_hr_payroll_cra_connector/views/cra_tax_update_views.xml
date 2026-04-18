@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+    <!-- ===== Tree view ===== -->
+    <record id="view_cra_tax_update_tree" model="ir.ui.view">
+        <field name="name">cra.tax.update.tree</field>
+        <field name="model">cra.tax.update</field>
+        <field name="arch" type="xml">
+            <list string="CRA Tax Updates" decoration-info="state == 'draft'" decoration-success="state == 'applied'" decoration-warning="state == 'reviewed'" decoration-muted="state in ('rejected', 'superseded')">
+                <field name="name"/>
+                <field name="effective_date"/>
+                <field name="published_at"/>
+                <field name="schema_version"/>
+                <field name="jurisdiction"/>
+                <field name="checksum_sha256" string="Checksum" optional="hide"/>
+                <field name="signature_verified" optional="hide"/>
+                <field name="state" widget="badge" decoration-info="state == 'draft'" decoration-success="state == 'applied'" decoration-warning="state == 'reviewed'" decoration-danger="state == 'rejected'" decoration-muted="state == 'superseded'"/>
+                <field name="applied_at" optional="hide"/>
+                <field name="applied_by_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ===== Form view ===== -->
+    <record id="view_cra_tax_update_form" model="ir.ui.view">
+        <field name="name">cra.tax.update.form</field>
+        <field name="model">cra.tax.update</field>
+        <field name="arch" type="xml">
+            <form string="CRA Tax Update">
+                <header>
+                    <button name="action_review" string="Review" type="object"
+                            class="btn-primary"
+                            invisible="state != 'draft'"/>
+                    <button name="action_open_apply_wizard" string="Apply…" type="object"
+                            class="btn-primary"
+                            invisible="state not in ('draft', 'reviewed')"/>
+                    <button name="action_reject" string="Reject" type="object"
+                            invisible="state in ('applied', 'superseded', 'rejected')"/>
+                    <button name="action_refetch" string="Refetch Now" type="object"
+                            icon="fa-refresh"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,reviewed,applied"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Feed Details">
+                            <field name="effective_date"/>
+                            <field name="published_at"/>
+                            <field name="schema_version"/>
+                            <field name="jurisdiction"/>
+                            <field name="checksum_sha256"/>
+                            <field name="signature_verified"/>
+                        </group>
+                        <group string="Application">
+                            <field name="state"/>
+                            <field name="applied_by_id" readonly="1"/>
+                            <field name="applied_at" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Source URLs">
+                        <field name="source_urls" nolabel="1" widget="text"/>
+                    </group>
+                    <notebook>
+                        <page string="Update Lines">
+                            <field name="line_ids" nolabel="1">
+                                <list editable="bottom" decoration-muted="change_status == 'unchanged'" decoration-success="change_status == 'changed'" decoration-info="change_status == 'new'">
+                                    <field name="selected" widget="boolean_toggle"/>
+                                    <field name="path"/>
+                                    <field name="rule_parameter_xml_id" string="Mapped Parameter"/>
+                                    <field name="old_value"/>
+                                    <field name="new_value"/>
+                                    <field name="value_type"/>
+                                    <field name="change_status" widget="badge" decoration-success="change_status == 'changed'" decoration-info="change_status == 'new'" decoration-muted="change_status == 'unchanged'"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Notes">
+                            <field name="notes" nolabel="1" widget="html"/>
+                        </page>
+                        <page string="Raw Payload" groups="base.group_system">
+                            <field name="payload_json" nolabel="1" widget="text" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <div class="oe_chatter">
+                    <field name="message_follower_ids"/>
+                    <field name="activity_ids"/>
+                    <field name="message_ids"/>
+                </div>
+            </form>
+        </field>
+    </record>
+
+    <!-- ===== Search view ===== -->
+    <record id="view_cra_tax_update_search" model="ir.ui.view">
+        <field name="name">cra.tax.update.search</field>
+        <field name="model">cra.tax.update</field>
+        <field name="arch" type="xml">
+            <search string="CRA Tax Updates">
+                <field name="name"/>
+                <field name="effective_date"/>
+                <field name="state"/>
+                <filter string="Draft" name="draft" domain="[('state', '=', 'draft')]"/>
+                <filter string="Reviewed" name="reviewed" domain="[('state', '=', 'reviewed')]"/>
+                <filter string="Applied" name="applied" domain="[('state', '=', 'applied')]"/>
+                <filter string="Rejected" name="rejected" domain="[('state', '=', 'rejected')]"/>
+                <filter string="Superseded" name="superseded" domain="[('state', '=', 'superseded')]"/>
+                <separator/>
+                <filter string="This Year" name="this_year"
+                        domain="[('effective_date', '&gt;=', (context_today()).strftime('%Y-01-01'))]"/>
+                <group expand="0" string="Group By">
+                    <filter string="State" name="group_state" context="{'group_by': 'state'}"/>
+                    <filter string="Effective Date" name="group_date" context="{'group_by': 'effective_date'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ===== Window action ===== -->
+    <record id="action_cra_tax_update" model="ir.actions.act_window">
+        <field name="name">CRA Tax Updates</field>
+        <field name="res_model">cra.tax.update</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_cra_tax_update_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No CRA tax updates yet.
+            </p>
+            <p>
+                The daily cron job will fetch the CRA feed and create draft updates here.
+                You can also trigger a fetch manually from Settings → Scheduled Actions.
+            </p>
+        </field>
+    </record>
+</odoo>

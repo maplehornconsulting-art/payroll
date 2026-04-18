@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_cra_tax_update_manager,cra.tax.update.manager,model_cra_tax_update,hr_payroll.group_hr_payroll_manager,1,1,1,1
+access_cra_tax_update_user,cra.tax.update.user,model_cra_tax_update,hr_payroll.group_hr_payroll_user,1,0,0,0
+access_cra_tax_update_line_manager,cra.tax.update.line.manager,model_cra_tax_update_line,hr_payroll.group_hr_payroll_manager,1,1,1,1
+access_cra_tax_update_line_user,cra.tax.update.line.user,model_cra_tax_update_line,hr_payroll.group_hr_payroll_user,1,0,0,0
+access_cra_tax_update_apply_wizard,cra.tax.update.apply.wizard,model_cra_tax_update_apply_wizard,hr_payroll.group_hr_payroll_manager,1,1,1,1
+access_cra_feed_client,cra.feed.client,model_cra_feed_client,hr_payroll.group_hr_payroll_manager,1,1,1,1

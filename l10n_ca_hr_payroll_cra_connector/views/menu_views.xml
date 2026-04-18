@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+    <menuitem
+        id="menu_cra_tax_update"
+        name="CRA Tax Updates"
+        parent="hr_payroll.menu_payroll_configuration"
+        action="action_cra_tax_update"
+        sequence="90"
+        groups="hr_payroll.group_hr_payroll_manager"/>
+</odoo>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+    <record id="mail_template_cra_tax_update_new" model="mail.template">
+        <field name="name">CRA Tax Update — New Draft Notification</field>
+        <field name="model_id" ref="model_cra_tax_update"/>
+        <field name="subject">New CRA tax update available — effective {{ object.effective_date }}</field>
+        <field name="body_html"><![CDATA[
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <h2 style="color: #2c3e50;">New CRA Payroll Tax Update Available</h2>
+    <p>A new CRA payroll tax update has been detected and is awaiting your review.</p>
+    <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
+        <tr>
+            <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">Update</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">{{ object.name }}</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">Effective Date</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">{{ object.effective_date }}</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">Schema Version</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">{{ object.schema_version }}</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px; border: 1px solid #ddd; background: #f9f9f9; font-weight: bold;">Lines Detected</td>
+            <td style="padding: 8px; border: 1px solid #ddd;">{{ object.line_ids | length }}</td>
+        </tr>
+    </table>
+    <p>
+        <a href="/web#model=cra.tax.update&amp;id={{ object.id }}&amp;view_type=form"
+           style="background: #875a7b; color: white; padding: 10px 20px; border-radius: 4px; text-decoration: none; display: inline-block;">
+            Review Update
+        </a>
+    </p>
+    <hr style="margin: 24px 0; border: none; border-top: 1px solid #eee;" />
+    <p style="color: #e74c3c; font-weight: bold;">⚠ Important Disclaimer</p>
+    <p style="color: #555; font-size: 0.9em;">
+        A <strong>qualified payroll professional must review and approve</strong> every CRA tax update
+        before it is applied to live payroll. This module is not an official product of the Canada
+        Revenue Agency (CRA). No warranty of any kind is provided. Always confirm tax values against
+        official CRA publications (T4127, TD1) before applying.
+    </p>
+</div>
+        ]]></field>
+        <field name="auto_delete">True</field>
+    </record>
+</odoo>

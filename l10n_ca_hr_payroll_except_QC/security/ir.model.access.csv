@@ -1,0 +1,15 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_hr_payroll_t4_manager,hr.payroll.t4.manager,model_hr_payroll_t4,hr_payroll.group_hr_payroll_manager,1,1,1,1
+access_hr_payroll_t4_user,hr.payroll.t4.user,model_hr_payroll_t4,hr_payroll.group_hr_payroll_user,1,0,0,0
+access_hr_payroll_t4_summary_manager,hr.payroll.t4.summary.manager,model_hr_payroll_t4_summary,hr_payroll.group_hr_payroll_manager,1,1,1,1
+access_hr_payroll_t4_summary_user,hr.payroll.t4.summary.user,model_hr_payroll_t4_summary,hr_payroll.group_hr_payroll_user,1,0,0,0
+access_hr_payroll_t4a_manager,hr.payroll.t4a.manager,model_hr_payroll_t4a,hr_payroll.group_hr_payroll_manager,1,1,1,1
+access_hr_payroll_t4a_user,hr.payroll.t4a.user,model_hr_payroll_t4a,hr_payroll.group_hr_payroll_user,1,0,0,0
+access_hr_payroll_t4a_summary_manager,hr.payroll.t4a.summary.manager,model_hr_payroll_t4a_summary,hr_payroll.group_hr_payroll_manager,1,1,1,1
+access_hr_payroll_t4a_summary_user,hr.payroll.t4a.summary.user,model_hr_payroll_t4a_summary,hr_payroll.group_hr_payroll_user,1,0,0,0
+access_hr_payroll_roe_manager,hr.payroll.roe.manager,model_hr_payroll_roe,hr_payroll.group_hr_payroll_manager,1,1,1,1
+access_hr_payroll_roe_user,hr.payroll.roe.user,model_hr_payroll_roe,hr_payroll.group_hr_payroll_user,1,0,0,0
+access_hr_payroll_roe_period_manager,hr.payroll.roe.period.manager,model_hr_payroll_roe_period,hr_payroll.group_hr_payroll_manager,1,1,1,1
+access_hr_payroll_roe_period_user,hr.payroll.roe.period.user,model_hr_payroll_roe_period,hr_payroll.group_hr_payroll_user,1,0,0,0
+access_hr_payroll_t4_wizard,hr.payroll.t4.wizard,model_hr_payroll_t4_wizard,hr_payroll.group_hr_payroll_manager,1,1,1,1
+access_hr_payroll_roe_wizard,hr.payroll.roe.wizard,model_hr_payroll_roe_wizard,hr_payroll.group_hr_payroll_manager,1,1,1,1

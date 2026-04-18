@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
 <odoo>
-    <!-- ===== Tree view ===== -->
+    <!-- ===== List view ===== -->
     <record id="view_cra_tax_update_tree" model="ir.ui.view">
-        <field name="name">cra.tax.update.tree</field>
+        <field name="name">cra.tax.update.list</field>
         <field name="model">cra.tax.update</field>
         <field name="arch" type="xml">
-            <list string="CRA Tax Updates" decoration-info="state == 'draft'" decoration-success="state == 'applied'" decoration-warning="state == 'reviewed'" decoration-muted="state in ('rejected','superseded')">
+            <list string="CRA Tax Updates">
                 <field name="name"/>
                 <field name="effective_date"/>
                 <field name="published_at"/>
@@ -14,7 +14,7 @@
                 <field name="jurisdiction"/>
                 <field name="checksum_sha256" string="Checksum" optional="hide"/>
                 <field name="signature_verified" optional="hide"/>
-                <field name="state" widget="badge" decoration-info="state == 'draft'" decoration-success="state == 'applied'" decoration-warning="state == 'reviewed'" decoration-danger="state == 'rejected'" decoration-muted="state == 'superseded'"/>
+                <field name="state" widget="badge"/>
                 <field name="applied_at" optional="hide"/>
                 <field name="applied_by_id" optional="hide"/>
             </list>
@@ -31,7 +31,7 @@
                     <button name="action_review" string="Review" type="object"
                             class="btn-primary"
                             invisible="state != 'draft'"/>
-                    <button name="action_open_apply_wizard" string="Apply…" type="object"
+                    <button name="action_open_apply_wizard" string="Apply" type="object"
                             class="btn-primary"
                             invisible="state not in ('draft', 'reviewed')"/>
                     <button name="action_reject" string="Reject" type="object"
@@ -65,14 +65,14 @@
                     <notebook>
                         <page string="Update Lines">
                             <field name="line_ids" nolabel="1">
-                                <list editable="bottom" decoration-muted="change_status == 'unchanged'" decoration-success="change_status == 'changed'" decoration-info="change_status == 'new'">
+                                <list editable="bottom">
                                     <field name="selected" widget="boolean_toggle"/>
                                     <field name="path"/>
                                     <field name="rule_parameter_xml_id" string="Mapped Parameter"/>
                                     <field name="old_value"/>
                                     <field name="new_value"/>
                                     <field name="value_type"/>
-                                    <field name="change_status" widget="badge" decoration-success="change_status == 'changed'" decoration-info="change_status == 'new'" decoration-muted="change_status == 'unchanged'"/>
+                                    <field name="change_status" widget="badge"/>
                                 </list>
                             </field>
                         </page>
@@ -84,16 +84,12 @@
                         </page>
                     </notebook>
                 </sheet>
-                <div class="oe_chatter">
-                    <field name="message_follower_ids"/>
-                    <field name="activity_ids"/>
-                    <field name="message_ids"/>
-                </div>
+                <chatter/>
             </form>
         </field>
     </record>
 
-    <!-- ===== Search view ===== -->
+    <!-- ===== Search view (minimal, Odoo 19 safe) ===== -->
     <record id="view_cra_tax_update_search" model="ir.ui.view">
         <field name="name">cra.tax.update.search</field>
         <field name="model">cra.tax.update</field>
@@ -101,16 +97,6 @@
             <search string="CRA Tax Updates">
                 <field name="name"/>
                 <field name="effective_date"/>
-                <field name="state"/>
-                <filter string="Draft" name="draft" domain="[('state', '=', 'draft')]"/>
-                <filter string="Reviewed" name="reviewed" domain="[('state', '=', 'reviewed')]"/>
-                <filter string="Applied" name="applied" domain="[('state', '=', 'applied')]"/>
-                <filter string="Rejected" name="rejected" domain="[('state', '=', 'rejected')]"/>
-                <filter string="Superseded" name="superseded" domain="[('state', '=', 'superseded')]"/>
-                <group expand="0" string="Group By">
-                    <filter string="State" name="group_state" context="{'group_by': 'state'}"/>
-                    <filter string="Effective Date" name="group_date" context="{'group_by': 'effective_date'}"/>
-                </group>
             </search>
         </field>
     </record>
@@ -127,7 +113,6 @@
             </p>
             <p>
                 The daily cron job will fetch the CRA feed and create draft updates here.
-                You can also trigger a fetch manually from Settings → Scheduled Actions.
             </p>
         </field>
     </record>

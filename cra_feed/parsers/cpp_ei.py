@@ -82,17 +82,7 @@ def _normalize_header(text: str) -> str:
 
 
 def _clean_header_text(th) -> str:
-    """Extract clean column header text from a canada.ca ``<th>`` cell.
-
-    canada.ca embeds:
-      - ``<span class="wb-inv">`` for screen-reader-only text (often a
-        duplicated, colon-prefixed copy of the header that breaks substring
-        matching)
-      - ``<a class="small">definition...</a>`` helper links with FontAwesome
-        icons (``<span class="far fa-...">`` etc.)
-
-    Strip all of those, then return whitespace-collapsed text.
-    """
+    """Extract clean column header text from a canada.ca <th> cell."""
     th_copy = copy.deepcopy(th)
     to_remove = [
         tag for tag in th_copy.find_all(["span", "a"])
@@ -101,6 +91,10 @@ def _clean_header_text(th) -> str:
     ]
     for tag in to_remove:
         tag.decompose()
+    # Unwrap any remaining inline styling tags (e.g. <span style="...">r</span>
+    # in canada.ca's "Yea<span>r</span>" header) so their text fuses with siblings.
+    for tag in th_copy.find_all(["span", "b", "i", "em", "strong"]):
+        tag.unwrap()
     text = th_copy.get_text(separator="", strip=True)
     return re.sub(r"\s+", " ", text).strip()
 

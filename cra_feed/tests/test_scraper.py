@@ -355,3 +355,248 @@ class TestParseNum:
     def test_dollar_no_comma(self):
         from cra_feed.parsers.t4127 import _parse_num
         assert _parse_num("$3500") == pytest.approx(3500.0)
+
+
+# ---------------------------------------------------------------------------
+# CPP parser – live-style fixture (th scope="row" year cells + definition links)
+# ---------------------------------------------------------------------------
+
+class TestCppParserLive:
+    """Regression tests for CPP/CPP2 parsing against a live-style fixture.
+
+    The live CRA page uses ``<th scope="row">`` for the Year column in data
+    rows (not ``<td>``) and embeds ``<a>Definition</a>`` links in column
+    headers.  The parser must handle both without breaking.
+    """
+
+    def test_cpp_rate_2026_live(self):
+        from cra_feed.parsers.cpp_ei import _parse_cpp_page
+        html = _read_fixture("cpp_page_live.html")
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026):
+            cpp, _cpp2 = _parse_cpp_page(html)
+        assert cpp["rate"] == pytest.approx(0.0595, abs=1e-5), \
+            f"CPP rate should be 0.0595, got {cpp.get('rate')}"
+
+    def test_cpp_ympe_2026_live(self):
+        from cra_feed.parsers.cpp_ei import _parse_cpp_page
+        html = _read_fixture("cpp_page_live.html")
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026):
+            cpp, _ = _parse_cpp_page(html)
+        assert cpp["ympe"] == 74600, f"YMPE should be 74600, got {cpp.get('ympe')}"
+
+    def test_cpp_basic_exemption_2026_live(self):
+        from cra_feed.parsers.cpp_ei import _parse_cpp_page
+        html = _read_fixture("cpp_page_live.html")
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026):
+            cpp, _ = _parse_cpp_page(html)
+        assert cpp["basic_exemption"] == 3500, \
+            f"Basic exemption should be 3500, got {cpp.get('basic_exemption')}"
+
+    def test_cpp_selects_correct_year_live(self):
+        """With 2024/2025/2026 rows, parser must pick 2026 (not earlier years)."""
+        from cra_feed.parsers.cpp_ei import _parse_cpp_page
+        html = _read_fixture("cpp_page_live.html")
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026):
+            cpp, _ = _parse_cpp_page(html)
+        assert cpp["ympe"] == 74600  # 2026 value, not 71300 (2025) or 68500 (2024)
+
+    def test_cpp2_rate_2026_live(self):
+        from cra_feed.parsers.cpp_ei import _parse_cpp_page
+        html = _read_fixture("cpp_page_live.html")
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026):
+            _, cpp2 = _parse_cpp_page(html)
+        assert cpp2["rate"] == pytest.approx(0.04, abs=1e-5), \
+            f"CPP2 rate should be 0.04, got {cpp2.get('rate')}"
+
+    def test_cpp2_yampe_2026_live(self):
+        from cra_feed.parsers.cpp_ei import _parse_cpp_page
+        html = _read_fixture("cpp_page_live.html")
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026):
+            _, cpp2 = _parse_cpp_page(html)
+        assert cpp2["yampe"] == 85000, f"YAMPE should be 85000, got {cpp2.get('yampe')}"
+
+
+# ---------------------------------------------------------------------------
+# CPP2 parser – dedicated CPP2 page fixture
+# ---------------------------------------------------------------------------
+
+class TestCpp2DedicatedPage:
+    """Regression tests for CPP2 parsing from the dedicated CPP2 URL."""
+
+    def test_cpp2_rate_from_dedicated_page(self):
+        from cra_feed.parsers.cpp_ei import _parse_cpp2_page
+        html = _read_fixture("cpp2_page.html")
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026):
+            cpp2 = _parse_cpp2_page(html)
+        assert cpp2["rate"] == pytest.approx(0.04, abs=1e-5), \
+            f"CPP2 rate should be 0.04, got {cpp2.get('rate')}"
+
+    def test_cpp2_yampe_from_dedicated_page(self):
+        from cra_feed.parsers.cpp_ei import _parse_cpp2_page
+        html = _read_fixture("cpp2_page.html")
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026):
+            cpp2 = _parse_cpp2_page(html)
+        assert cpp2["yampe"] == 85000, f"YAMPE should be 85000, got {cpp2.get('yampe')}"
+
+    def test_cpp2_picks_correct_year(self):
+        """With 2024/2025/2026 rows, parser must pick 2026."""
+        from cra_feed.parsers.cpp_ei import _parse_cpp2_page
+        html = _read_fixture("cpp2_page.html")
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026):
+            cpp2 = _parse_cpp2_page(html)
+        assert cpp2["yampe"] == 85000  # 2026 value, not 81900 (2025) or 73200 (2024)
+
+
+# ---------------------------------------------------------------------------
+# EI parser – live-style fixture (th scope="row" year cells + definition links)
+# ---------------------------------------------------------------------------
+
+class TestEiParserLive:
+    """Regression tests for EI parsing against a live-style fixture."""
+
+    def test_ei_rate_2026_live(self):
+        from cra_feed.parsers.cpp_ei import _parse_ei_page
+        html = _read_fixture("ei_page_live.html")
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026):
+            ei = _parse_ei_page(html)
+        assert ei["rate"] == pytest.approx(0.0163, abs=1e-5), \
+            f"EI rate should be 0.0163, got {ei.get('rate')}"
+
+    def test_ei_max_insurable_2026_live(self):
+        from cra_feed.parsers.cpp_ei import _parse_ei_page
+        html = _read_fixture("ei_page_live.html")
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026):
+            ei = _parse_ei_page(html)
+        assert ei["max_insurable_earnings"] == 68900, \
+            f"Max insurable should be 68900, got {ei.get('max_insurable_earnings')}"
+
+    def test_ei_selects_correct_year_live(self):
+        """With 2024/2025/2026 rows, parser must pick 2026."""
+        from cra_feed.parsers.cpp_ei import _parse_ei_page
+        html = _read_fixture("ei_page_live.html")
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026):
+            ei = _parse_ei_page(html)
+        assert ei["max_insurable_earnings"] == 68900  # 2026, not 65700 or 63200
+
+
+# ---------------------------------------------------------------------------
+# Province mapping – canonical keys, no "newfoundland" duplicate
+# ---------------------------------------------------------------------------
+
+class TestProvinceMapping:
+    """Tests for the PROVINCE_NAME_TO_CODE canonical-key mapping."""
+
+    # Quebec (QC) is intentionally excluded: it runs its own provincial tax
+    # system (Revenu Québec) and is not covered by the T4127 formulas.
+    EXPECTED_CODES = {"AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "SK", "YT"}
+
+    def test_no_duplicate_nl_key(self):
+        """'newfoundland' must not be a separate key from 'newfoundland and labrador'."""
+        from cra_feed.parsers.t4127 import PROVINCE_NAME_TO_CODE
+        assert "newfoundland" not in PROVINCE_NAME_TO_CODE, (
+            "PROVINCE_NAME_TO_CODE must not contain bare 'newfoundland' "
+            "(would produce a duplicate NL entry)"
+        )
+
+    def test_newfoundland_and_labrador_key_present(self):
+        """'newfoundland and labrador' must be present and map to 'NL'."""
+        from cra_feed.parsers.t4127 import PROVINCE_NAME_TO_CODE
+        assert PROVINCE_NAME_TO_CODE.get("newfoundland and labrador") == "NL"
+
+    def test_exactly_12_province_codes(self):
+        """Exactly 12 distinct province/territory codes (QC excluded)."""
+        from cra_feed.parsers.t4127 import PROVINCE_NAME_TO_CODE
+        codes = set(PROVINCE_NAME_TO_CODE.values())
+        assert len(codes) == 12, f"Expected 12 province codes, got {len(codes)}: {codes}"
+
+    def test_all_expected_codes_present(self):
+        """All 12 canonical province codes must be present."""
+        from cra_feed.parsers.t4127 import PROVINCE_NAME_TO_CODE
+        codes = set(PROVINCE_NAME_TO_CODE.values())
+        missing = self.EXPECTED_CODES - codes
+        assert not missing, f"Missing province codes: {missing}"
+
+    def test_no_qc_code(self):
+        """Quebec (QC) must not appear — it uses its own provincial tax system."""
+        from cra_feed.parsers.t4127 import PROVINCE_NAME_TO_CODE
+        assert "QC" not in PROVINCE_NAME_TO_CODE.values(), (
+            "Quebec must be excluded from PROVINCE_NAME_TO_CODE"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Province BPA – missing BPA must raise ValueError (not silent $0)
+# ---------------------------------------------------------------------------
+
+class TestProvinceBpaError:
+    """Tests that a missing BPA raises ValueError, not silently returns $0."""
+
+    def test_missing_bpa_raises_value_error(self):
+        """_parse_province_bpa must raise ValueError when no BPA is found."""
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_province_bpa
+
+        # Section with a tax table but no BPA dollar amount in the plausible range.
+        html = """
+        <div>
+          <h3>Some Province provincial tax</h3>
+          <table>
+            <tr><th>Annual net income (A)</th><th>Rate (R)</th></tr>
+            <tr><td>0 to 100,000</td><td>10%</td></tr>
+          </table>
+        </div>
+        """
+        section_soup = BeautifulSoup(html, "lxml")
+
+        with pytest.raises(ValueError, match="Could not parse BPA"):
+            _parse_province_bpa(section_soup, "some province")
+
+    def test_missing_bpa_does_not_return_zero(self):
+        """_parse_province_bpa must NOT silently return 0.0 when BPA is absent."""
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_province_bpa
+
+        html = "<div><p>No basic personal amount here.</p></div>"
+        section_soup = BeautifulSoup(html, "lxml")
+
+        raised = False
+        try:
+            result = _parse_province_bpa(section_soup, "testprovince")
+        except ValueError:
+            raised = True
+
+        assert raised, (
+            "_parse_province_bpa must raise ValueError for missing BPA, "
+            "not return a value (got 0.0 or similar)"
+        )
+
+    def test_present_bpa_is_parsed_correctly(self):
+        """Verify the function still parses a well-formed BPA section."""
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_province_bpa
+
+        html = """
+        <div>
+          <p>Basic personal amount: $11,865.00</p>
+        </div>
+        """
+        section_soup = BeautifulSoup(html, "lxml")
+        bpa = _parse_province_bpa(section_soup, "ontario")
+        assert bpa == pytest.approx(11865.0, abs=1.0)
+
+    def test_bpa_in_bulleted_list(self):
+        """_parse_province_bpa must find BPA expressed in a <ul><li> element."""
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_province_bpa
+
+        html = """
+        <div>
+          <ul>
+            <li>The basic personal amount for this province is $12,000.00</li>
+          </ul>
+        </div>
+        """
+        section_soup = BeautifulSoup(html, "lxml")
+        bpa = _parse_province_bpa(section_soup, "some province")
+        assert bpa == pytest.approx(12000.0, abs=1.0)
+

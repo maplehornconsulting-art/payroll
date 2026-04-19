@@ -6,6 +6,10 @@ Source URLs:
   cpp-contribution-rates-maximums-exemptions.html
 
   https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/
+  payroll/calculating-deductions/making-deductions/
+  second-additional-cpp-contribution-rates-maximums.html
+
+  https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/
   payroll/payroll-deductions-contributions/employment-insurance-ei/
   ei-premium-rates-maximums.html
 """
@@ -26,6 +30,12 @@ CPP_SOURCE_URL = (
     "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/"
     "payroll/payroll-deductions-contributions/canada-pension-plan-cpp/"
     "cpp-contribution-rates-maximums-exemptions.html"
+)
+
+CPP2_SOURCE_URL = (
+    "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/"
+    "payroll/calculating-deductions/making-deductions/"
+    "second-additional-cpp-contribution-rates-maximums.html"
 )
 
 EI_SOURCE_URL = (
@@ -56,6 +66,19 @@ def _current_year() -> int:
     return date.today().year
 
 
+def _normalize_header(text: str) -> str:
+    """Normalize a table header string for robust matching.
+
+    - Strips standalone ``Definition`` words (embedded link text on CRA pages).
+    - Collapses all whitespace runs to a single space.
+    """
+    # Remove standalone "Definition" words (CRA pages add these as link text)
+    text = re.sub(r"\bDefinition\b", "", text, flags=re.I)
+    # Collapse whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
 # ---------------------------------------------------------------------------
 # CPP parser
 # ---------------------------------------------------------------------------
@@ -69,6 +92,20 @@ def _col_index(headers: list[str], *keywords: str) -> int | None:
     return None
 
 
+def _col_index_any(headers: list[str], *keyword_groups: tuple[str, ...]) -> int | None:
+    """Return the first column index that matches ANY of the given keyword groups.
+
+    Each *keyword_group* is a tuple of keywords that must ALL appear in the
+    header (substring match, case-insensitive).  The first group with a full
+    match wins.
+    """
+    for keywords in keyword_groups:
+        idx = _col_index(headers, *keywords)
+        if idx is not None:
+            return idx
+    return None
+
+
 def _cell_float(tds: list, col: int | None) -> float | None:
     """Return a float from ``tds[col]``, or ``None`` if col is out of range."""
     if col is None or col >= len(tds):
@@ -77,6 +114,13 @@ def _cell_float(tds: list, col: int | None) -> float | None:
         return _parse_num(tds[col].get_text(strip=True))
     except ValueError:
         return None
+
+
+def _cell_text(tds: list, col: int | None) -> str:
+    """Return the stripped text of ``tds[col]``, or empty string."""
+    if col is None or col >= len(tds):
+        return ""
+    return tds[col].get_text(strip=True)
 
 
 def _row_year(tds: list, year_col: int | None) -> int | None:
@@ -88,16 +132,28 @@ def _row_year(tds: list, year_col: int | None) -> int | None:
 
 
 def _extract_headers_and_data(table) -> tuple[list[str], list]:
-    """Split table rows into header texts and data rows (td-only rows)."""
+    """Split table rows into header texts and data rows.
+
+    Header rows are rows where every cell is a ``<th>`` (no ``<td>``).
+    Data rows are rows that contain at least one ``<td>``.  For data rows,
+    *all* cells are returned in document order — including any leading
+    ``<th scope="row">`` cells (e.g. the "Year" column on CRA pages).
+    Header texts are normalized via :func:`_normalize_header`.
+    """
     header_texts: list[str] = []
     data_rows: list = []
     for row in table.find_all("tr"):
         ths = row.find_all("th")
         tds = row.find_all("td")
         if ths and not tds:
-            header_texts = [th.get_text(" ", strip=True) for th in ths]
+            # Pure header row — normalize header text
+            header_texts = [
+                _normalize_header(th.get_text(" ", strip=True)) for th in ths
+            ]
         elif tds:
-            data_rows.append(tds)
+            # Data row: include ALL cells in document order so that a
+            # <th scope="row"> year cell at position 0 is preserved.
+            data_rows.append(row.find_all(["th", "td"]))
     return header_texts, data_rows
 
 
@@ -106,6 +162,7 @@ def _parse_cpp_page(html: str) -> tuple[dict, dict]:
     Parse CPP and CPP2 data from the CRA CPP rates page.
 
     Returns (cpp_dict, cpp2_dict) for the current/most-recent year.
+    The CPP2 dict may be empty if no CPP2 table is found on this page.
     """
     soup = BeautifulSoup(html, "lxml")
     year = _current_year()
@@ -126,8 +183,12 @@ def _parse_cpp_page(html: str) -> tuple[dict, dict]:
 
         # Identify which kind of table this is
         has_year_col = any("year" in h for h in h_lower)
-        has_ympe = any("ympe" in h or "maximum pensionable" in h for h in h_lower)
-        has_yampe = any("yampe" in h or "additional maximum" in h for h in h_lower)
+        has_ympe = any(
+            "ympe" in h or "pensionable earnings" in h for h in h_lower
+        )
+        has_yampe = any(
+            "yampe" in h or "additional maximum pensionable" in h for h in h_lower
+        )
         has_rate = any("rate" in h or "contribution" in h for h in h_lower)
 
         if not has_year_col:
@@ -136,9 +197,22 @@ def _parse_cpp_page(html: str) -> tuple[dict, dict]:
         year_col = _col_index(h_lower, "year")
 
         if has_ympe and has_rate and not has_yampe:
-            # CPP1 table
-            ympe_col = _col_index(h_lower, "ympe") or _col_index(h_lower, "maximum pensionable")
-            rate_col = _col_index(h_lower, "rate") or _col_index(h_lower, "contribution rate")
+            # CPP1 table: "CPP contribution rates, maximums and exemptions"
+            ympe_col = _col_index_any(
+                h_lower,
+                ("ympe",),
+                ("maximum", "pensionable"),
+                ("pensionable earnings",),
+            )
+            # Rate column: require "rate" AND "(%)" so that "Maximum contributory
+            # earnings" (which doesn't contain "rate") is never selected as the
+            # rate column.
+            rate_col = _col_index_any(
+                h_lower,
+                ("rate", "(%"),
+                ("contribution rate",),
+                ("rate",),
+            )
             exemption_col = _col_index(h_lower, "exemption")
 
             for tds in data_rows:
@@ -156,13 +230,31 @@ def _parse_cpp_page(html: str) -> tuple[dict, dict]:
                             "ympe": int(ympe_v),
                             "basic_exemption": int(exemption_v),
                         }
+                    elif ympe_v is None or rate_v is None:
+                        raise ValueError(
+                            f"CPP row for {year} found but could not extract required "
+                            f"fields. "
+                            f"ympe_col={ympe_col} → {_cell_text(tds, ympe_col)!r}; "
+                            f"rate_col={rate_col} → {_cell_text(tds, rate_col)!r}. "
+                            f"Headers: {header_texts}"
+                        )
                 except (ValueError, IndexError):
                     continue
 
         elif has_yampe or (has_ympe and has_rate and "second" in " ".join(h_lower)):
             # CPP2 table (or combined table with YAMPE column)
-            yampe_col = _col_index(h_lower, "yampe") or _col_index(h_lower, "additional maximum")
-            rate_col = _col_index(h_lower, "rate") or _col_index(h_lower, "contribution rate")
+            yampe_col = _col_index_any(
+                h_lower,
+                ("yampe",),
+                ("additional maximum pensionable",),
+                ("additional maximum",),
+            )
+            rate_col = _col_index_any(
+                h_lower,
+                ("rate", "(%"),
+                ("contribution rate",),
+                ("rate",),
+            )
 
             for tds in data_rows:
                 if _row_year(tds, year_col) != year:
@@ -178,6 +270,71 @@ def _parse_cpp_page(html: str) -> tuple[dict, dict]:
                     continue
 
     return cpp, cpp2
+
+
+def _parse_cpp2_page(html: str) -> dict:
+    """
+    Parse CPP2 data from the dedicated CRA second-additional-CPP rates page.
+
+    Returns a cpp2_dict for the current year, or an empty dict if not found.
+    """
+    _cpp, cpp2 = _parse_cpp_page(html)
+    if cpp2:
+        return cpp2
+
+    # The CPP2-only page may not have a separate CPP2 section but instead
+    # lists YAMPE + rate in a table that looks like CPP1 without YMPE.
+    # Fall back to a broader search: any table with year + additional/yampe/second.
+    soup = BeautifulSoup(html, "lxml")
+    year = _current_year()
+
+    for table in soup.find_all("table"):
+        header_texts, data_rows = _extract_headers_and_data(table)
+        if not header_texts or not data_rows:
+            continue
+
+        h_lower = [h.lower() for h in header_texts]
+        has_year_col = any("year" in h for h in h_lower)
+        has_earnings = any(
+            "pensionable" in h or "earnings" in h for h in h_lower
+        )
+        has_rate = any("rate" in h or "contribution" in h for h in h_lower)
+        has_second = any(
+            "second" in h or "additional" in h or "yampe" in h for h in h_lower
+        )
+
+        if not (has_year_col and has_earnings and has_rate and has_second):
+            continue
+
+        year_col = _col_index(h_lower, "year")
+        yampe_col = _col_index_any(
+            h_lower,
+            ("yampe",),
+            ("additional",),
+            ("second", "earnings"),
+            ("pensionable earnings",),
+        )
+        rate_col = _col_index_any(
+            h_lower,
+            ("rate", "(%"),
+            ("contribution rate",),
+            ("rate",),
+        )
+
+        for tds in data_rows:
+            if _row_year(tds, year_col) != year:
+                continue
+            try:
+                yampe_v = _cell_float(tds, yampe_col)
+                rate_v = _cell_float(tds, rate_col)
+                if rate_v is not None and rate_v > 1:
+                    rate_v /= 100.0
+                if yampe_v is not None and rate_v is not None:
+                    return {"rate": rate_v, "yampe": int(yampe_v)}
+            except (ValueError, IndexError):
+                continue
+
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -211,15 +368,22 @@ def _parse_ei_page(html: str) -> dict:
             continue
 
         year_col = _col_index(h_lower, "year")
-        insurable_col = (
-            _col_index(h_lower, "maximum annual insurable")
-            or _col_index(h_lower, "insurable")
+        insurable_col = _col_index_any(
+            h_lower,
+            ("maximum annual insurable",),
+            ("insurable earnings",),
+            ("insurable",),
         )
-        rate_col = (
-            _col_index(h_lower, "employee", "rate")
-            or _col_index(h_lower, "employee", "premium")
-            or _col_index(h_lower, "premium rate")
-            or _col_index(h_lower, "rate")
+        # Employee premium rate; prefer columns that also mention "(%)" to
+        # avoid matching the employer rate or maximum-premium columns.
+        rate_col = _col_index_any(
+            h_lower,
+            ("employee", "rate", "(%"),
+            ("employee", "premium", "(%"),
+            ("employee", "rate"),
+            ("employee", "premium"),
+            ("premium rate",),
+            ("rate",),
         )
 
         for tds in data_rows:
@@ -270,6 +434,15 @@ def parse(session=None) -> dict:
     cpp_html = _fetch(session, CPP_SOURCE_URL)
     cpp, cpp2 = _parse_cpp_page(cpp_html)
 
+    # If CPP2 was not on the CPP page, try the dedicated CPP2 page.
+    if not cpp2:
+        logger.info(
+            "CPP2 data not found on CPP page; fetching dedicated CPP2 page %s",
+            CPP2_SOURCE_URL,
+        )
+        cpp2_html = _fetch(session, CPP2_SOURCE_URL)
+        cpp2 = _parse_cpp2_page(cpp2_html)
+
     ei_html = _fetch(session, EI_SOURCE_URL)
     ei = _parse_ei_page(ei_html)
 
@@ -289,5 +462,5 @@ def parse(session=None) -> dict:
         "cpp": cpp,
         "cpp2": cpp2,
         "ei": ei,
-        "source_urls": [CPP_SOURCE_URL, EI_SOURCE_URL],
+        "source_urls": [CPP_SOURCE_URL, CPP2_SOURCE_URL, EI_SOURCE_URL],
     }

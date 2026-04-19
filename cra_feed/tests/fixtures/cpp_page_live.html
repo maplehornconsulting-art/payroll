@@ -12,11 +12,11 @@
     pensionable earnings, and basic exemption amounts.
   </p>
 
-  <!-- This fixture mimics the real CRA page structure:
-       - <th scope="col"> column headers contain embedded <a> "Definition" links
-       - <th scope="row"> cells are used for the Year column in data rows
-       - Whitespace around header text may be irregular
-  -->
+  <!-- Realistic canada.ca fixture: every <th scope="col"> contains
+       <br class="visible-xs"> line breaks, a <a class="small">definition
+       <span class="wb-inv">: ...</span><span class="far fa-question-circle
+       mrgn-lft-0"></span></a> helper link, and a screen-reader duplicate
+       wrapped in <span class="wb-inv">. -->
 
   <h2>CPP contribution rates and maximum amounts</h2>
   <table class="table table-striped">
@@ -24,19 +24,60 @@
     <thead>
       <tr>
         <th scope="col">Year</th>
-        <th scope="col">
-          Maximum annual pensionable earnings
-          <a href="#defn-ympe" class="wb-lbx">Definition</a>
-          (YMPE)
+        <th scope="col">Maximum<br class="visible-xs">
+annual<br class="visible-xs">
+pensionable<br class="visible-xs">
+earnings&nbsp;<br>
+<a href="#dt1" class="small">definition
+  <span class="wb-inv">: Maximum annual pensionable earnings (YMPE)</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+(YMPE)
         </th>
-        <th scope="col">Basic exemption amount</th>
-        <th scope="col">Maximum contributory earnings</th>
-        <th scope="col">
-          Employee and employer contribution rate (%)
-          <a href="#fn1" class="fn-lnk"><sup>1</sup></a>
+        <th scope="col">Basic<br class="visible-xs">
+exemption<br class="visible-xs">
+amount&nbsp;<br>
+<a href="#dt2" class="small">definition
+  <span class="wb-inv">: Basic exemption amount</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
         </th>
-        <th scope="col">Maximum annual employee and employer contribution</th>
-        <th scope="col">Maximum annual self-employed contribution</th>
+        <th scope="col">Maximum<br class="visible-xs">
+contributory<br class="visible-xs">
+earnings&nbsp;<br>
+<a href="#dt3" class="small">definition
+  <span class="wb-inv">: Maximum contributory earnings</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+        </th>
+        <th scope="col">Employee<br class="visible-xs">
+and employer<br class="visible-xs">
+contribution<br class="visible-xs">
+rate (%)&nbsp;<br>
+<a href="#dt4" class="small">definition
+  <span class="wb-inv">: Employee and employer contribution rate (%)</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+        </th>
+        <th scope="col">Maximum<br class="visible-xs">
+annual<br class="visible-xs">
+employee and<br class="visible-xs">
+employer<br class="visible-xs">
+contribution&nbsp;<br>
+<a href="#dt5" class="small">definition
+  <span class="wb-inv">: Maximum annual employee and employer contribution</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+        </th>
+        <th scope="col">Maximum<br class="visible-xs">
+annual<br class="visible-xs">
+self-employed<br class="visible-xs">
+contribution&nbsp;<br>
+<a href="#dt6" class="small">definition
+  <span class="wb-inv">: Maximum annual self-employed contribution</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+        </th>
       </tr>
     </thead>
     <tbody>
@@ -76,13 +117,36 @@
     <thead>
       <tr>
         <th scope="col">Year</th>
-        <th scope="col">
-          Year's additional maximum pensionable earnings
-          <a href="#defn-yampe" class="wb-lbx">Definition</a>
-          (YAMPE)
+        <th scope="col">Year's<br class="visible-xs">
+additional<br class="visible-xs">
+maximum<br class="visible-xs">
+pensionable<br class="visible-xs">
+earnings&nbsp;<br>
+<a href="#dt7" class="small">definition
+  <span class="wb-inv">: Year's additional maximum pensionable earnings (YAMPE)</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+(YAMPE)
         </th>
-        <th scope="col">Employee and employer contribution rate (%)</th>
-        <th scope="col">Maximum annual employee and employer contribution</th>
+        <th scope="col">Employee<br class="visible-xs">
+and employer<br class="visible-xs">
+contribution<br class="visible-xs">
+rate (%)&nbsp;<br>
+<a href="#dt8" class="small">definition
+  <span class="wb-inv">: Employee and employer contribution rate (%)</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+        </th>
+        <th scope="col">Maximum<br class="visible-xs">
+annual<br class="visible-xs">
+employee and<br class="visible-xs">
+employer<br class="visible-xs">
+contribution&nbsp;<br>
+<a href="#dt9" class="small">definition
+  <span class="wb-inv">: Maximum annual employee and employer contribution</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+        </th>
       </tr>
     </thead>
     <tbody>

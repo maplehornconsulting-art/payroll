@@ -701,3 +701,216 @@ class TestProvinceBpaFromClaimCodes:
         assert "k1p" in result
         assert result["k1p"] == pytest.approx(668.73, abs=0.01)
 
+
+# ---------------------------------------------------------------------------
+# _clean_header_text unit tests
+# ---------------------------------------------------------------------------
+
+class TestCleanHeaderText:
+    """Unit tests for the _clean_header_text() helper."""
+
+    def _th(self, inner_html: str):
+        from bs4 import BeautifulSoup
+        return BeautifulSoup(f"<th>{inner_html}</th>", "lxml").find("th")
+
+    def test_strips_wb_inv(self):
+        """wb-inv span (screen-reader duplicate text) must be removed."""
+        from cra_feed.parsers.cpp_ei import _clean_header_text
+        th = self._th('Rate <span class="wb-inv">: Rate</span>')
+        assert _clean_header_text(th) == "Rate"
+
+    def test_strips_definition_link(self):
+        """<a class="small">definition...</a> helper link must be removed."""
+        from cra_feed.parsers.cpp_ei import _clean_header_text
+        th = self._th(
+            'Rate <a class="small">definition'
+            '<span class="wb-inv">: Rate</span></a>'
+        )
+        assert _clean_header_text(th) == "Rate"
+
+    def test_strips_fontawesome_icon(self):
+        """FontAwesome icon spans (far/fa-*) must be removed."""
+        from cra_feed.parsers.cpp_ei import _clean_header_text
+        th = self._th('Rate <span class="far fa-question-circle"></span>')
+        assert _clean_header_text(th) == "Rate"
+
+    def test_collapses_whitespace_with_br(self):
+        """<br> line breaks between words must be collapsed to single space."""
+        from cra_feed.parsers.cpp_ei import _clean_header_text
+        th = self._th("Maximum<br>annual<br>rate")
+        assert _clean_header_text(th) == "Maximum annual rate"
+
+    def test_preserves_simple_text(self):
+        """Plain text with no noise elements must pass through unchanged."""
+        from cra_feed.parsers.cpp_ei import _clean_header_text
+        th = self._th("Year")
+        assert _clean_header_text(th) == "Year"
+
+
+# ---------------------------------------------------------------------------
+# Regression test: exact user-captured live HTML excerpt
+# ---------------------------------------------------------------------------
+
+class TestCppLiveHtmlRegression:
+    """Regression test using a fixture that exactly matches the user-pasted
+    live HTML excerpt from the canada.ca CPP page.
+
+    Verifies CPP rate=0.0595, YMPE=74600, basic exemption=3500 for 2026.
+    """
+
+    _FIXTURE = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"></head>
+<body><main>
+<table class="table table-striped">
+<thead>
+<tr>
+<th scope="col">Year</th>
+<th scope="col">Maximum<br class="visible-xs">
+annual<br class="visible-xs">
+pensionable<br class="visible-xs">
+earnings&nbsp;<br>
+<a href="#dt1" class="small">definition
+  <span class="wb-inv">: Maximum annual pensionable earnings (YMPE)</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+(YMPE)
+</th>
+<th scope="col">Basic<br class="visible-xs">
+exemption<br class="visible-xs">
+amount&nbsp;<br>
+<a href="#dt2" class="small">definition
+  <span class="wb-inv">: Basic exemption amount</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+</th>
+<th scope="col">Maximum<br class="visible-xs">
+contributory<br class="visible-xs">
+earnings&nbsp;<br>
+<a href="#dt3" class="small">definition
+  <span class="wb-inv">: Maximum contributory earnings</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+</th>
+<th scope="col">Employee<br class="visible-xs">
+and employer<br class="visible-xs">
+contribution<br class="visible-xs">
+rate (%)&nbsp;<br>
+<a href="#dt4" class="small">definition
+  <span class="wb-inv">: Employee and employer contribution rate (%)</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+</th>
+<th scope="col">Maximum<br class="visible-xs">
+annual<br class="visible-xs">
+employee and<br class="visible-xs">
+employer<br class="visible-xs">
+contribution&nbsp;<br>
+<a href="#dt5" class="small">definition
+  <span class="wb-inv">: Maximum annual employee and employer contribution</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+</th>
+<th scope="col">Maximum<br class="visible-xs">
+annual<br class="visible-xs">
+self-employed<br class="visible-xs">
+contribution&nbsp;<br>
+<a href="#dt6" class="small">definition
+  <span class="wb-inv">: Maximum annual self-employed contribution</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2026</td><td>$74,600</td><td>$3,500</td><td>$71,100</td><td>5.95</td><td>$4,230.45</td><td>$8,460.90</td>
+</tr>
+<tr>
+<td>2025</td><td>$71,300</td><td>$3,500</td><td>$67,800</td><td>5.95</td><td>$4,034.10</td><td>$8,068.20</td>
+</tr>
+</tbody>
+</table>
+</main></body></html>"""
+
+    def test_cpp_rate_from_live_excerpt(self):
+        from cra_feed.parsers.cpp_ei import _parse_cpp_page
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026):
+            cpp, _ = _parse_cpp_page(self._FIXTURE)
+        assert cpp["rate"] == pytest.approx(0.0595, abs=1e-5)
+
+    def test_cpp_ympe_from_live_excerpt(self):
+        from cra_feed.parsers.cpp_ei import _parse_cpp_page
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026):
+            cpp, _ = _parse_cpp_page(self._FIXTURE)
+        assert cpp["ympe"] == 74600
+
+    def test_cpp_basic_exemption_from_live_excerpt(self):
+        from cra_feed.parsers.cpp_ei import _parse_cpp_page
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026):
+            cpp, _ = _parse_cpp_page(self._FIXTURE)
+        assert cpp["basic_exemption"] == 3500
+
+
+# ---------------------------------------------------------------------------
+# debug_dir: HTML is written on parse failure
+# ---------------------------------------------------------------------------
+
+class TestCppEiDebugDir:
+    """Tests that parse() writes debug HTML files when debug_dir is set."""
+
+    def test_debug_cpp_html_written_on_failure(self, tmp_path):
+        """When CPP parse fails (no valid year data), cpp.html is written."""
+        from unittest.mock import MagicMock
+        from cra_feed.parsers import cpp_ei
+
+        broken_html = "<html><body><p>No table here</p></body></html>"
+        valid_ei = _read_fixture("ei_page_live.html")
+
+        session = MagicMock()
+
+        def _fake_get(url, **kwargs):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            if "ei" in url.lower():
+                resp.text = valid_ei
+            else:
+                resp.text = broken_html
+            return resp
+
+        session.get.side_effect = _fake_get
+
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026), \
+             patch("cra_feed.parsers.cpp_ei.time.sleep"):
+            with pytest.raises(ValueError):
+                cpp_ei.parse(session, debug_dir=tmp_path)
+
+        assert (tmp_path / "cpp.html").exists(), "cpp.html must be written on CPP parse failure"
+
+    def test_debug_ei_html_written_on_failure(self, tmp_path):
+        """When EI parse fails (no valid year data), ei.html is written."""
+        from unittest.mock import MagicMock
+        from cra_feed.parsers import cpp_ei
+
+        valid_cpp = _read_fixture("cpp_page_live.html")
+        broken_html = "<html><body><p>No EI table here</p></body></html>"
+
+        session = MagicMock()
+
+        def _fake_get(url, **kwargs):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            if "ei" in url.lower():
+                resp.text = broken_html
+            else:
+                resp.text = valid_cpp
+            return resp
+
+        session.get.side_effect = _fake_get
+
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026), \
+             patch("cra_feed.parsers.cpp_ei.time.sleep"):
+            with pytest.raises(ValueError):
+                cpp_ei.parse(session, debug_dir=tmp_path)
+
+        assert (tmp_path / "ei.html").exists(), "ei.html must be written on EI parse failure"
+

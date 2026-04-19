@@ -12,24 +12,57 @@
     and maximum insurable earnings for employees outside Quebec.
   </p>
 
-  <!-- This fixture mimics the real CRA page structure:
-       - <th scope="row"> cells for Year column in data rows
-       - Embedded "Definition" link in column headers
-  -->
+  <!-- Realistic canada.ca fixture: every <th scope="col"> uses the real
+       wb-inv / definition-link / fa-icon pattern from the live CRA page. -->
   <h2>EI premium rates and maximums (outside Quebec)</h2>
   <table class="table table-striped">
     <caption>Table 1 – EI premium rates and maximums</caption>
     <thead>
       <tr>
         <th scope="col">Year</th>
-        <th scope="col">
-          Maximum annual insurable earnings
-          <a href="#defn-maie" class="wb-lbx">Definition</a>
+        <th scope="col">Maximum<br class="visible-xs">
+annual<br class="visible-xs">
+insurable<br class="visible-xs">
+earnings&nbsp;<br>
+<a href="#dt1" class="small">definition
+  <span class="wb-inv">: Maximum annual insurable earnings</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
         </th>
-        <th scope="col">Employee premium rate (%)</th>
-        <th scope="col">Maximum annual employee premium</th>
-        <th scope="col">Employer premium rate (%)</th>
-        <th scope="col">Maximum annual employer premium</th>
+        <th scope="col">Employee<br class="visible-xs">
+premium<br class="visible-xs">
+rate (%)&nbsp;<br>
+<a href="#dt2" class="small">definition
+  <span class="wb-inv">: Employee premium rate (%)</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+        </th>
+        <th scope="col">Maximum<br class="visible-xs">
+annual<br class="visible-xs">
+employee<br class="visible-xs">
+premium&nbsp;<br>
+<a href="#dt3" class="small">definition
+  <span class="wb-inv">: Maximum annual employee premium</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+        </th>
+        <th scope="col">Employer<br class="visible-xs">
+premium<br class="visible-xs">
+rate (%)&nbsp;<br>
+<a href="#dt4" class="small">definition
+  <span class="wb-inv">: Employer premium rate (%)</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+        </th>
+        <th scope="col">Maximum<br class="visible-xs">
+annual<br class="visible-xs">
+employer<br class="visible-xs">
+premium&nbsp;<br>
+<a href="#dt5" class="small">definition
+  <span class="wb-inv">: Maximum annual employer premium</span>
+  <span class="far fa-question-circle mrgn-lft-0"></span>
+</a>
+        </th>
       </tr>
     </thead>
     <tbody>

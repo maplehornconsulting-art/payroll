@@ -235,3 +235,80 @@ class TestParseEditionRouting:
         assert result["tax_brackets"], "tax_brackets must not be empty"
         assert len(result["tax_brackets"]) > 0
         assert result["tax_brackets"][-1]["up_to"] is None, "top bracket up_to must be None"
+
+    def test_parse_follows_toc_to_sub_page(self):
+        """parse() must fetch and parse the sub-page when t4127-jan.html is a TOC.
+
+        Regression test: before this fix, parse() passed ``soup_edition`` (the
+        TOC page with no bracket tables) to ``_parse_federal``, causing a
+        ValueError.  Now it detects the TOC, follows the computer-programs link,
+        fetches the sub-page, and parses THAT instead.
+        """
+        from unittest.mock import MagicMock, patch
+        import cra_feed.parsers.t4127 as t4127_mod
+
+        index_html = (FIXTURES_DIR / "t4127_index.html").read_text(encoding="utf-8")
+        # edition page is a TOC with no bracket tables — it links to the doc sub-page
+        edition_html = (FIXTURES_DIR / "t4127_edition.html").read_text(encoding="utf-8")
+        # the doc sub-page has the real bracket data
+        doc_html = (FIXTURES_DIR / "t4127_real_jan_2026.html").read_text(encoding="utf-8")
+
+        doc_url_fragment = "t4127-jan-payroll-deductions-formulas-computer-programs.html"
+
+        session = MagicMock()
+
+        def _fake_get(url, **kwargs):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            if url == t4127_mod.T4127_INDEX_URL:
+                resp.text = index_html
+            elif doc_url_fragment in url:
+                resp.text = doc_html
+            else:
+                resp.text = edition_html
+            return resp
+
+        session.get.side_effect = _fake_get
+
+        with patch("cra_feed.parsers.t4127.time.sleep"):
+            result = t4127_mod.parse(session=session)
+
+        assert result["tax_brackets"], "tax_brackets must not be empty"
+        assert len(result["tax_brackets"]) == 5
+        assert result["tax_brackets"][-1]["up_to"] is None, "top bracket up_to must be None"
+        assert result["k1_rate"] == pytest.approx(0.15, abs=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# Regression – real Jan 2026 fixture (Strategy D: caption match)
+# ---------------------------------------------------------------------------
+
+class TestRealJan2026:
+    """Regression test using the real-page-modelled t4127_real_jan_2026.html fixture.
+
+    The real T4127 computer-programs page uses table captions like
+    "Table 4.1 Federal income tax rates and income thresholds".
+    Strategy D (caption match) must locate the correct table directly.
+    """
+
+    @pytest.fixture(scope="class")
+    def result(self):
+        return _parse_federal(_load("t4127_real_jan_2026.html"))
+
+    def test_bracket_count(self, result):
+        assert len(result["tax_brackets"]) == 5
+
+    def test_top_bracket_is_none(self, result):
+        assert result["tax_brackets"][-1]["up_to"] is None
+
+    def test_k1_rate_is_15_percent(self, result):
+        assert result["k1_rate"] == pytest.approx(0.15, abs=1e-4)
+
+    def test_bpaf_has_min_and_max(self, result):
+        assert "min" in result["bpaf"]
+        assert "max" in result["bpaf"]
+        assert result["bpaf"]["min"] > 0
+        assert result["bpaf"]["max"] > 0
+
+    def test_bpaf_max_greater_than_min(self, result):
+        assert result["bpaf"]["max"] >= result["bpaf"]["min"]

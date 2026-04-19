@@ -748,7 +748,7 @@ def parse(session=None, debug_dir=None) -> dict:
 
     # 5. Federal data (required — raises if missing)
     try:
-        federal = _parse_federal(soup, source_url=doc_url)
+        federal = _parse_federal(soup_edition, source_url=edition_url)
     except Exception:
         if debug_dir is not None:
             from pathlib import Path as _Path

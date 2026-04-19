@@ -23,6 +23,8 @@ def _post_init_hook(env):
        b. Create the SAL Salary Journal if absent.
        c. Assign the SAL journal to the Canadian payroll structures when
           the ``hr_payroll_account`` bridge is installed.
+    3. Ensure the 'Receiver General for Canada' CRA partner exists and
+       create a default RemittanceConfig per CA company if absent.
     """
     # ------------------------------------------------------------------
     # 1. Archive conflicting default salary rules (original logic)
@@ -92,3 +94,50 @@ def _post_init_hook(env):
         ensure_payroll_accounts(env, company)
         journal = ensure_sal_journal(env, company)
         assign_journal_to_structures(env, journal)
+
+    # ------------------------------------------------------------------
+    # 3. Remittance setup — CRA partner + config per company
+    # ------------------------------------------------------------------
+    if 'l10n.ca.remittance.config' not in env:
+        return
+
+    cra_partner = _ensure_cra_partner(env)
+
+    RemConfig = env['l10n.ca.remittance.config']
+    for company in ca_companies:
+        existing = RemConfig.search([('company_id', '=', company.id)], limit=1)
+        if not existing:
+            bank_journal = env['account.journal'].search([
+                ('type', 'in', ['bank', 'cash']),
+                ('company_id', '=', company.id),
+            ], limit=1)
+            RemConfig.with_company(company).create({
+                'company_id': company.id,
+                'cra_partner_id': cra_partner.id,
+                'default_bank_journal_id': bank_journal.id if bank_journal else False,
+            })
+
+
+def _ensure_cra_partner(env):
+    """Return (or create) the 'Receiver General for Canada' partner.
+
+    Safe to call multiple times — idempotent by partner name.
+    """
+    Partner = env['res.partner']
+    cra = Partner.search([('name', '=', 'Receiver General for Canada')], limit=1)
+    if not cra:
+        ca_country = env.ref('base.ca', raise_if_not_found=False)
+        cra = Partner.create({
+            'name': 'Receiver General for Canada',
+            'is_company': True,
+            'supplier_rank': 1,
+            'country_id': ca_country.id if ca_country else False,
+            'website': 'https://www.canada.ca/en/revenue-agency.html',
+            'comment': (
+                'CRA — Receiver General for Canada. '
+                'Used for payroll remittance payments (PD7A). '
+                'Do not modify this record.'
+            ),
+        })
+    return cra
+

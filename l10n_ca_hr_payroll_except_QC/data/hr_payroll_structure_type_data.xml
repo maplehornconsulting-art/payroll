@@ -1,8 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
 <odoo>
+    <!-- Hourly: keep the original xml id so existing employees / contracts
+         keep working without a manual data migration. -->
     <record id="structure_type_employee_ca" model="hr.payroll.structure.type">
-        <field name="name">Canadian Employee</field>
+        <field name="name">Canadian Employee — Hourly</field>
         <field name="country_id" ref="base.ca"/>
+        <field name="wage_type">hourly</field>
+        <field name="default_schedule_pay">bi-weekly</field>
+    </record>
+
+    <record id="structure_type_employee_ca_salaried" model="hr.payroll.structure.type">
+        <field name="name">Canadian Employee — Salaried</field>
+        <field name="country_id" ref="base.ca"/>
+        <field name="wage_type">monthly</field>
+        <field name="default_schedule_pay">bi-weekly</field>
     </record>
 </odoo>

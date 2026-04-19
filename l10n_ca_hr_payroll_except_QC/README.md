@@ -34,6 +34,16 @@ Developed by **MapleHorn Consulting Inc.** — Canadian payroll experts.
 - **Federal Income Tax** — 5-bracket progressive tax with Basic Personal Amount (BPA) phase-out for high earners
 - **Additional Federal Tax** — Support for employee-requested additional withholding (TD1 Section 2)
 
+### 🏢 Pay Structure Types — Hourly & Salaried
+Two structure types are included out of the box so an admin can simply assign the right one when creating a contract:
+
+| Structure Type | `wage_type` | Use for |
+|---|---|---|
+| **Canadian Employee — Hourly** | `hourly` | Contracts that pay by attendance hours × `hourly_wage` |
+| **Canadian Employee — Salaried** | `monthly` | Contracts that pay a fixed `wage` per period |
+
+Both structure types use the same full rule set (CPP/CPP2, EI, Federal Tax, Provincial Tax, OHP, etc.) and support all pay schedules (weekly, bi-weekly, semi-monthly, monthly, etc.).
+
 ### 🏛️ Provincial/Territorial Tax — All 12 Jurisdictions
 Dynamic province detection from the employee record. One salary structure works for all provinces:
 
@@ -182,8 +192,10 @@ BASIC (wage) → GROSS (+ OT, Bonus, Commission)
 
 1. Go to the employee's **Contract** (via Payroll settings)
 2. Set:
-   - **Wage** (bi-weekly amount)
-   - **Structure Type** → select **Canadian Employee**
+   - **Wage** — hourly rate for hourly employees, monthly/bi-weekly amount for salaried employees
+   - **Structure Type** → select the appropriate type:
+     - **Canadian Employee — Hourly**: contracts that pay by attendance hours × `hourly_wage`
+     - **Canadian Employee — Salaried**: contracts that pay a fixed `wage` per period
    - **CPP Exempt** / **EI Exempt** if applicable
    - **Additional Federal Tax** (if employee requested on TD1)
 
@@ -236,6 +248,11 @@ A future `l10n_ca_qc_hr_payroll` module may be developed for Quebec.
 ---
 
 ## Changelog
+
+### v1.2 (April 2026)
+- ✅ Ship both **Canadian Employee — Hourly** and **Canadian Employee — Salaried** structure types out of the box
+- ✅ Idempotent rule-clone helper (`_l10n_ca_clone_rules_to_salaried`) ensures both structures stay in sync on upgrades
+- ✅ Demo data includes one hourly and one salaried employee contract
 
 ### v1.1 (March 2026)
 - ✅ Added dynamic province detection for all 12 provinces/territories

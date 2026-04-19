@@ -122,6 +122,7 @@ def build_feed(debug_dir: Path | None = None) -> CRAFeed:
         code: ProvinceData(
             bpa=pdata["bpa"],
             tax_brackets=[TaxBracket(**b) for b in pdata["tax_brackets"]],
+            surtax=pdata.get("surtax", []),
             k1p=pdata.get("k1p"),
         )
         for code, pdata in t4127_data.get("provinces", {}).items()

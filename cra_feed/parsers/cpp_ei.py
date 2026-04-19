@@ -96,7 +96,7 @@ def _clean_header_text(th) -> str:
         br.replace_with(NavigableString(" "))
     for tag in th_copy.find_all(["span", "b", "i", "em", "strong"]):
         tag.unwrap()
-    text = th_copy.get_text(separator="", strip=True)
+    text = th_copy.get_text(separator="")
     return re.sub(r"\s+", " ", text).strip()
 
 

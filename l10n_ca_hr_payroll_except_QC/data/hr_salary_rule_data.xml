@@ -68,6 +68,9 @@ else:
         <field name="struct_id" ref="hr_payroll_structure_ca_employee_salary"/>
         <field name="condition_select">none</field>
         <field name="amount_select">code</field>
+        <!-- Dr 5410 Salaries Expense / Cr 2380 Net Pay Clearing -->
+        <field name="account_debit" ref="account_5410"/>
+        <field name="account_credit" ref="account_2380"/>
         <field name="amount_python_compute">
 result = (
     result_rules.get('BASIC', {}).get('total', 0)
@@ -131,6 +134,9 @@ result = (
         <field name="condition_select">python</field>
         <field name="condition_python">result = inputs.get('RRSP') and inputs['RRSP'].amount &gt; 0</field>
         <field name="amount_select">code</field>
+        <!-- Dr 2380 Net Pay Clearing / Cr 2360 RRSP Payable -->
+        <field name="account_debit" ref="account_2380"/>
+        <field name="account_credit" ref="account_2360"/>
         <field name="amount_python_compute">
 result = -(inputs['RRSP'].amount if inputs.get('RRSP') else 0)
         </field>
@@ -146,6 +152,9 @@ result = -(inputs['RRSP'].amount if inputs.get('RRSP') else 0)
         <field name="condition_select">python</field>
         <field name="condition_python">result = inputs.get('UNION') and inputs['UNION'].amount &gt; 0</field>
         <field name="amount_select">code</field>
+        <!-- Dr 2380 Net Pay Clearing / Cr 2370 Union Dues Payable -->
+        <field name="account_debit" ref="account_2380"/>
+        <field name="account_credit" ref="account_2370"/>
         <field name="amount_python_compute">
 result = -(inputs['UNION'].amount if inputs.get('UNION') else 0)
         </field>
@@ -160,6 +169,9 @@ result = -(inputs['UNION'].amount if inputs.get('UNION') else 0)
         <field name="struct_id" ref="hr_payroll_structure_ca_employee_salary"/>
         <field name="condition_select">none</field>
         <field name="amount_select">code</field>
+        <!-- Dr 2380 Net Pay Clearing / Cr 2320 CPP Payable -->
+        <field name="account_debit" ref="account_2380"/>
+        <field name="account_credit" ref="account_2320"/>
         <field name="amount_python_compute">
 gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 if version.l10n_ca_cpp_exempt:
@@ -185,6 +197,9 @@ else:
         <field name="struct_id" ref="hr_payroll_structure_ca_employee_salary"/>
         <field name="condition_select">none</field>
         <field name="amount_select">code</field>
+        <!-- Dr 2380 Net Pay Clearing / Cr 2321 CPP2 Payable -->
+        <field name="account_debit" ref="account_2380"/>
+        <field name="account_credit" ref="account_2321"/>
         <field name="amount_python_compute">
 gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 if version.l10n_ca_cpp_exempt:
@@ -215,6 +230,9 @@ else:
         <field name="struct_id" ref="hr_payroll_structure_ca_employee_salary"/>
         <field name="condition_select">none</field>
         <field name="amount_select">code</field>
+        <!-- Dr 2380 Net Pay Clearing / Cr 2330 EI Payable -->
+        <field name="account_debit" ref="account_2380"/>
+        <field name="account_credit" ref="account_2330"/>
         <field name="amount_python_compute">
 gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 if version.l10n_ca_ei_exempt:
@@ -240,6 +258,9 @@ else:
         <field name="struct_id" ref="hr_payroll_structure_ca_employee_salary"/>
         <field name="condition_select">none</field>
         <field name="amount_select">code</field>
+        <!-- Dr 2380 Net Pay Clearing / Cr 2310 Federal Tax Payable -->
+        <field name="account_debit" ref="account_2380"/>
+        <field name="account_credit" ref="account_2310"/>
         <field name="amount_python_compute">
 gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 rrsp = abs(result_rules.get('RRSP', {}).get('total', 0))
@@ -294,6 +315,9 @@ result = -(annual_tax / periods + additional)
         <field name="struct_id" ref="hr_payroll_structure_ca_employee_salary"/>
         <field name="condition_select">none</field>
         <field name="amount_select">code</field>
+        <!-- Dr 2380 Net Pay Clearing / Cr 2340 Provincial Tax Payable -->
+        <field name="account_debit" ref="account_2380"/>
+        <field name="account_credit" ref="account_2340"/>
         <field name="amount_python_compute">
 gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 rrsp = abs(result_rules.get('RRSP', {}).get('total', 0))
@@ -390,6 +414,11 @@ province = employee.l10n_ca_province_id.code or 'ON'
 result = (province == 'ON')
         </field>
         <field name="amount_select">code</field>
+        <!-- Dr 2380 Net Pay Clearing / Cr 2340 Provincial Tax Payable
+             OHP is part of provincial tax obligations and is remitted to
+             the Ontario Ministry of Finance alongside PROV_TAX. -->
+        <field name="account_debit" ref="account_2380"/>
+        <field name="account_credit" ref="account_2340"/>
         <field name="amount_python_compute">
 gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 rrsp = abs(result_rules.get('RRSP', {}).get('total', 0))
@@ -469,6 +498,10 @@ result = (
         <field name="condition_select">none</field>
         <field name="amount_select">code</field>
         <field name="appears_on_payslip">True</field>
+        <!-- Dr 5420 CPP ER Expense / Cr 2320 CPP Payable
+             Aggregates with the EE contribution on 2320 for PD7A remittance. -->
+        <field name="account_debit" ref="account_5420"/>
+        <field name="account_credit" ref="account_2320"/>
         <field name="amount_python_compute">result = -result_rules.get('CPP_EE', {}).get('total', 0)</field>
     </record>
 
@@ -482,6 +515,9 @@ result = (
         <field name="condition_select">none</field>
         <field name="amount_select">code</field>
         <field name="appears_on_payslip">True</field>
+        <!-- Dr 5421 CPP2 ER Expense / Cr 2321 CPP2 Payable -->
+        <field name="account_debit" ref="account_5421"/>
+        <field name="account_credit" ref="account_2321"/>
         <field name="amount_python_compute">result = -result_rules.get('CPP2_EE', {}).get('total', 0)</field>
     </record>
 
@@ -495,6 +531,10 @@ result = (
         <field name="condition_select">none</field>
         <field name="amount_select">code</field>
         <field name="appears_on_payslip">True</field>
+        <!-- Dr 5430 EI ER Expense / Cr 2330 EI Payable
+             Aggregates with the EE premium on 2330 for PD7A remittance. -->
+        <field name="account_debit" ref="account_5430"/>
+        <field name="account_credit" ref="account_2330"/>
         <field name="amount_python_compute">
 ei_employer_mult = payslip._rule_parameter('l10n_ca_ei_employer_multiplier')
 result = -result_rules.get('EI_EE', {}).get('total', 0) * ei_employer_mult

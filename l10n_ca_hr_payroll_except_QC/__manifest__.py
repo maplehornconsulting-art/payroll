@@ -7,11 +7,13 @@
     'summary': 'Canadian Payroll with CPP/CPP2, EI, Federal & Provincial Tax, T4/T4A, ROE — All Provinces Except Quebec',
     'depends': [
         'hr_payroll',
+        'hr_payroll_account',
+        'l10n_ca',
         'hr_work_entry_holidays',
         'hr_payroll_holidays',
     ],
     'auto_install': False,
-    'version': '19.0.1.6',
+    'version': '19.0.1.7',
     'description': """
 Canada Payroll Rules.
 =====================
@@ -38,6 +40,7 @@ Canada Payroll Rules.
     * Period-aware salary rules (weekly / bi-weekly / semi-monthly / monthly / quarterly / annually)
     * Ship both Hourly and Salaried Canadian structure types out of the box.
     * Use Python-literal (not JSON) for hr.rule.parameter values; required by Odoo's safe_eval validator.
+    * Integrates with hr_payroll_account — confirming a payslip posts a balanced account.move using Canadian GL conventions (2xxx liabilities, 5xxx expenses).
     """,
     'data': [
         'security/ir.model.access.csv',
@@ -46,6 +49,8 @@ Canada Payroll Rules.
         'data/hr_payroll_structure_data.xml',
         'data/hr_rule_parameters_data.xml',
         'data/hr_payslip_input_type_data.xml',
+        'data/account_account_data.xml',
+        'data/account_journal_data.xml',
         'data/hr_salary_rule_data.xml',
         'views/hr_employee_views.xml',
         'views/hr_version_views.xml',

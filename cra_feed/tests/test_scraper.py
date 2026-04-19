@@ -486,6 +486,8 @@ class TestEiParserLive:
 class TestProvinceMapping:
     """Tests for the PROVINCE_NAME_TO_CODE canonical-key mapping."""
 
+    # Quebec (QC) is intentionally excluded: it runs its own provincial tax
+    # system (Revenu Québec) and is not covered by the T4127 formulas.
     EXPECTED_CODES = {"AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "SK", "YT"}
 
     def test_no_duplicate_nl_key(self):

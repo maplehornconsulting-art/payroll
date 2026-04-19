@@ -204,8 +204,9 @@ def _parse_cpp_page(html: str) -> tuple[dict, dict]:
                 ("maximum", "pensionable"),
                 ("pensionable earnings",),
             )
-            # Rate column: must contain "rate" AND "(%" to avoid matching
-            # "Maximum contributory earnings" which contains "contribution".
+            # Rate column: require "rate" AND "(%)" so that "Maximum contributory
+            # earnings" (which doesn't contain "rate") is never selected as the
+            # rate column.
             rate_col = _col_index_any(
                 h_lower,
                 ("rate", "(%"),

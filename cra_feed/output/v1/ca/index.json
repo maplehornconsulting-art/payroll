@@ -1,5 +1,11 @@
 [
   {
+    "effective_date": "2026-01-01",
+    "published_at": "2026-04-19T06:30:38Z",
+    "sha256": "f22d2a3771df30a4a4c0a5d830f2edbfd18c2ab55a084e205bbb8c82c0092e8e",
+    "file": "2026-01-01.json"
+  },
+  {
     "effective_date": "2026-07-01",
     "published_at": "2026-04-18T07:09:32Z",
     "sha256": "7a4b023cd8a5ba22c628012fb788df8406a7ec4e11a37130f06b3a6812054e30",

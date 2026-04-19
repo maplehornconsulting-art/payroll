@@ -914,3 +914,320 @@ class TestCppEiDebugDir:
 
         assert (tmp_path / "ei.html").exists(), "ei.html must be written on EI parse failure"
 
+
+# ---------------------------------------------------------------------------
+# _parse_table_81 unit tests
+# ---------------------------------------------------------------------------
+
+class TestParseTable81:
+    """Unit tests for _parse_table_81() using synthetic HTML fixtures."""
+
+    _HTML = """
+    <html><body>
+    <table>
+      <caption>Table 8.1 Rates (R, V), income thresholds (A), and constants (K, KP) for 2026</caption>
+      <thead>
+        <tr><th></th><th>1st</th><th>2nd</th><th>3rd</th><th>4th</th><th>5th</th><th>6th</th><th>7th</th></tr>
+      </thead>
+      <tbody>
+        <!-- Federal block – must be ignored -->
+        <tr><td>Federal</td><td>A</td><td>0</td><td>58,523</td><td>117,045</td><td>181,440</td><td>258,482</td><td></td></tr>
+        <tr><td>R</td><td>0.1400</td><td>0.2050</td><td>0.2600</td><td>0.2900</td><td>0.3300</td><td></td><td></td></tr>
+        <tr><td>K</td><td>0</td><td>3,804</td><td>10,241</td><td>15,685</td><td>26,024</td><td></td><td></td></tr>
+        <!-- AB – 6 brackets -->
+        <tr><td>AB</td><td>A</td><td>0</td><td>61,200</td><td>154,259</td><td>185,111</td><td>246,813</td><td>370,220</td></tr>
+        <tr><td>V</td><td>0.0800</td><td>0.1000</td><td>0.1200</td><td>0.1300</td><td>0.1400</td><td>0.1500</td><td></td></tr>
+        <tr><td>KP</td><td>0</td><td>1,224</td><td>4,309</td><td>6,160</td><td>8,628</td><td>12,331</td><td></td></tr>
+        <!-- NU – 4 brackets -->
+        <tr><td>NU</td><td>A</td><td>0</td><td>55,801</td><td>111,602</td><td>181,439</td><td></td><td></td></tr>
+        <tr><td>V</td><td>0.0400</td><td>0.0700</td><td>0.0900</td><td>0.1150</td><td></td><td></td><td></td></tr>
+        <tr><td>KP</td><td>0</td><td>1,624</td><td>5,278</td><td>9,826</td><td></td><td></td><td></td></tr>
+      </tbody>
+    </table>
+    </body></html>
+    """
+
+    @pytest.fixture(scope="class")
+    def result(self):
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_table_81
+        soup = BeautifulSoup(self._HTML, "lxml")
+        return _parse_table_81(soup)
+
+    def test_federal_not_included(self, result):
+        """Federal block must be ignored."""
+        assert "Federal" not in result
+        # No province code for Federal
+        assert all(len(k) == 2 for k in result)
+
+    def test_returns_ab_and_nu(self, result):
+        assert "AB" in result
+        assert "NU" in result
+
+    def test_ab_bracket_count(self, result):
+        assert len(result["AB"]) == 6
+
+    def test_ab_rates(self, result):
+        rates = [b["rate"] for b in result["AB"]]
+        assert rates == pytest.approx([0.08, 0.10, 0.12, 0.13, 0.14, 0.15], abs=1e-5)
+
+    def test_ab_thresholds(self, result):
+        up_tos = [b["up_to"] for b in result["AB"]]
+        assert up_tos[:5] == pytest.approx([61200.0, 154259.0, 185111.0, 246813.0, 370220.0])
+        assert up_tos[-1] is None
+
+    def test_ab_top_bracket_none(self, result):
+        assert result["AB"][-1]["up_to"] is None
+
+    def test_nu_bracket_count(self, result):
+        assert len(result["NU"]) == 4
+
+    def test_nu_brackets_exact(self, result):
+        expected = [
+            {"up_to": 55801.0, "rate": pytest.approx(0.04, abs=1e-5)},
+            {"up_to": 111602.0, "rate": pytest.approx(0.07, abs=1e-5)},
+            {"up_to": 181439.0, "rate": pytest.approx(0.09, abs=1e-5)},
+            {"up_to": None, "rate": pytest.approx(0.115, abs=1e-5)},
+        ]
+        for actual, exp in zip(result["NU"], expected):
+            assert actual["up_to"] == exp["up_to"]
+            assert actual["rate"] == exp["rate"]
+
+    def test_nu_top_bracket_none(self, result):
+        assert result["NU"][-1]["up_to"] is None
+
+    def test_returns_empty_when_no_table_81(self):
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_table_81
+        soup = BeautifulSoup("<html><body><p>No table here</p></body></html>", "lxml")
+        assert _parse_table_81(soup) == {}
+
+
+# ---------------------------------------------------------------------------
+# _parse_claim_code_bpas unit tests
+# ---------------------------------------------------------------------------
+
+class TestParseClaimCodeBpas:
+    """Unit tests for _parse_claim_code_bpas() using synthetic HTML fixtures."""
+
+    _HTML = """
+    <html><body>
+    <!-- NU claim codes table – has K1P -->
+    <table>
+      <caption>Table 8.17 Nunavut claim codes</caption>
+      <thead>
+        <tr>
+          <th>Claim code</th>
+          <th>Total claim amount ($) from</th>
+          <th>Total claim amount ($) to</th>
+          <th>Option 1, TCP ($)</th>
+          <th>Option 1, K1P ($)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>0</td><td>No claim amount</td><td>No claim amount</td><td>0.00</td><td>0.00</td></tr>
+        <tr><td>1</td><td>0.00</td><td>19,659.00</td><td>19,659.00</td><td>786.36</td></tr>
+        <tr><td>2</td><td>19,659.01</td><td>39,318.00</td><td>39,318.00</td><td>1,572.72</td></tr>
+      </tbody>
+    </table>
+    <!-- MB claim codes table – parenthetical suffix, no K1P column -->
+    <table>
+      <caption>Table 8.13 Manitoba (Using maximum BPAMB) claim codes</caption>
+      <thead>
+        <tr>
+          <th>Claim code</th>
+          <th>Total claim amount ($) from</th>
+          <th>Total claim amount ($) to</th>
+          <th>Option 1, TCP ($)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>0</td><td>No claim amount</td><td>No claim amount</td><td>0.00</td></tr>
+        <tr><td>1</td><td>0.00</td><td>15,780.00</td><td>15,780.00</td></tr>
+        <tr><td>2</td><td>15,780.01</td><td>31,560.00</td><td>31,560.00</td></tr>
+      </tbody>
+    </table>
+    </body></html>
+    """
+
+    @pytest.fixture(scope="class")
+    def result(self):
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_claim_code_bpas
+        soup = BeautifulSoup(self._HTML, "lxml")
+        return _parse_claim_code_bpas(soup)
+
+    def test_nu_present(self, result):
+        assert "NU" in result
+
+    def test_nu_bpa(self, result):
+        assert result["NU"]["bpa"] == pytest.approx(19659.0, abs=0.01)
+
+    def test_nu_k1p_present(self, result):
+        assert "k1p" in result["NU"]
+
+    def test_nu_k1p_value(self, result):
+        assert result["NU"]["k1p"] == pytest.approx(786.36, abs=0.01)
+
+    def test_mb_present(self, result):
+        assert "MB" in result
+
+    def test_mb_bpa(self, result):
+        assert result["MB"]["bpa"] == pytest.approx(15780.0, abs=0.01)
+
+    def test_mb_no_k1p(self, result):
+        """MB table has no K1P column; k1p key must be absent."""
+        assert "k1p" not in result["MB"]
+
+    def test_returns_empty_when_no_tables(self):
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_claim_code_bpas
+        soup = BeautifulSoup("<html><body><p>Nothing here</p></body></html>", "lxml")
+        assert _parse_claim_code_bpas(soup) == {}
+
+
+# ---------------------------------------------------------------------------
+# _parse_provinces integration test (2026+ Table 8.1 format)
+# ---------------------------------------------------------------------------
+
+class TestParseProvincesTable81:
+    """Integration test for _parse_provinces() using the 2026+ Table 8.1 format."""
+
+    _HTML = """
+    <html><body>
+    <!-- Table 8.1: consolidated brackets -->
+    <table>
+      <caption>Table 8.1 Rates (R, V), income thresholds (A), and constants (K, KP) for 2026</caption>
+      <thead>
+        <tr><th></th><th>1st</th><th>2nd</th><th>3rd</th><th>4th</th><th>5th</th><th>6th</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>AB</td><td>A</td><td>0</td><td>61,200</td><td>154,259</td><td>185,111</td><td>246,813</td></tr>
+        <tr><td>V</td><td>0.0800</td><td>0.1000</td><td>0.1200</td><td>0.1300</td><td>0.1400</td><td></td></tr>
+        <tr><td>KP</td><td>0</td><td>1,224</td><td>4,309</td><td>6,160</td><td>8,628</td><td></td></tr>
+        <tr><td>NU</td><td>A</td><td>0</td><td>55,801</td><td>111,602</td><td>181,439</td><td></td></tr>
+        <tr><td>V</td><td>0.0400</td><td>0.0700</td><td>0.0900</td><td>0.1150</td><td></td><td></td></tr>
+        <tr><td>KP</td><td>0</td><td>1,624</td><td>5,278</td><td>9,826</td><td></td><td></td></tr>
+      </tbody>
+    </table>
+    <!-- Claim codes tables for AB and NU -->
+    <table>
+      <caption>Table 8.10 Alberta claim codes</caption>
+      <thead>
+        <tr>
+          <th>Claim code</th>
+          <th>Total claim amount ($) from</th>
+          <th>Total claim amount ($) to</th>
+          <th>Option 1, TCP ($)</th>
+          <th>Option 1, K1P ($)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>0</td><td>No claim amount</td><td>No claim amount</td><td>0.00</td><td>0.00</td></tr>
+        <tr><td>1</td><td>0.00</td><td>21,003.00</td><td>21,003.00</td><td>1,680.24</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <caption>Table 8.17 Nunavut claim codes</caption>
+      <thead>
+        <tr>
+          <th>Claim code</th>
+          <th>Total claim amount ($) from</th>
+          <th>Total claim amount ($) to</th>
+          <th>Option 1, TCP ($)</th>
+          <th>Option 1, K1P ($)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>0</td><td>No claim amount</td><td>No claim amount</td><td>0.00</td><td>0.00</td></tr>
+        <tr><td>1</td><td>0.00</td><td>19,659.00</td><td>19,659.00</td><td>786.36</td></tr>
+      </tbody>
+    </table>
+    </body></html>
+    """
+
+    @pytest.fixture(scope="class")
+    def provinces(self):
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_provinces
+        soup = BeautifulSoup(self._HTML, "lxml")
+        return _parse_provinces(soup)
+
+    def test_both_provinces_present(self, provinces):
+        assert "AB" in provinces
+        assert "NU" in provinces
+
+    def test_ab_bpa(self, provinces):
+        assert provinces["AB"]["bpa"] == pytest.approx(21003.0, abs=0.01)
+
+    def test_ab_k1p(self, provinces):
+        assert "k1p" in provinces["AB"]
+        assert provinces["AB"]["k1p"] == pytest.approx(1680.24, abs=0.01)
+
+    def test_ab_tax_brackets(self, provinces):
+        brackets = provinces["AB"]["tax_brackets"]
+        assert len(brackets) == 5  # 5 rates in the V row
+        assert brackets[-1]["up_to"] is None
+
+    def test_nu_bpa(self, provinces):
+        assert provinces["NU"]["bpa"] == pytest.approx(19659.0, abs=0.01)
+
+    def test_nu_k1p(self, provinces):
+        assert "k1p" in provinces["NU"]
+        assert provinces["NU"]["k1p"] == pytest.approx(786.36, abs=0.01)
+
+    def test_nu_tax_brackets(self, provinces):
+        brackets = provinces["NU"]["tax_brackets"]
+        assert len(brackets) == 4
+        assert brackets[-1]["up_to"] is None
+
+    def test_nu_bracket_values(self, provinces):
+        brackets = provinces["NU"]["tax_brackets"]
+        assert brackets[0] == {"up_to": pytest.approx(55801.0), "rate": pytest.approx(0.04)}
+        assert brackets[1] == {"up_to": pytest.approx(111602.0), "rate": pytest.approx(0.07)}
+        assert brackets[2] == {"up_to": pytest.approx(181439.0), "rate": pytest.approx(0.09)}
+        assert brackets[3] == {"up_to": None, "rate": pytest.approx(0.115)}
+
+    def test_missing_bpa_raises_value_error(self):
+        """When Table 8.1 has brackets but no matching claim codes table, raise."""
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_provinces
+        html = """
+        <html><body>
+        <table>
+          <caption>Table 8.1 Rates (R, V), income thresholds (A), and constants (K, KP) for 2026</caption>
+          <tbody>
+            <tr><td>NU</td><td>A</td><td>0</td><td>55,801</td><td>111,602</td><td>181,439</td></tr>
+            <tr><td>V</td><td>0.0400</td><td>0.0700</td><td>0.0900</td><td>0.1150</td></tr>
+          </tbody>
+        </table>
+        <!-- No claim codes table for NU -->
+        </body></html>
+        """
+        soup = BeautifulSoup(html, "lxml")
+        with pytest.raises(ValueError, match="NU"):
+            _parse_provinces(soup)
+
+    def test_falls_back_to_legacy_when_no_table_81(self):
+        """When Table 8.1 is absent, legacy per-province parsing must be attempted."""
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_provinces
+        # Page with no Table 8.1 but a legacy-style province section
+        html = """
+        <html><body>
+        <h3>Ontario</h3>
+        <p>Basic personal amount: $11,865.00</p>
+        <table>
+          <caption>Ontario provincial tax rates</caption>
+          <tr><th>Income</th><th>Rate</th></tr>
+          <tr><td>$0 to $51,446</td><td>5.05%</td></tr>
+          <tr><td>$51,447 to $102,894</td><td>9.15%</td></tr>
+          <tr><td>Over $102,894</td><td>11.16%</td></tr>
+        </table>
+        </body></html>
+        """
+        soup = BeautifulSoup(html, "lxml")
+        result = _parse_provinces(soup)
+        assert "ON" in result
+        assert result["ON"]["bpa"] == pytest.approx(11865.0, abs=0.01)
+        assert len(result["ON"]["tax_brackets"]) == 3

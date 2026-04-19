@@ -41,6 +41,7 @@ class EIData(BaseModel):
 class ProvinceData(BaseModel):
     bpa: float
     tax_brackets: list[TaxBracket]
+    k1p: Optional[float] = None
 
 
 class CRAFeed(BaseModel):

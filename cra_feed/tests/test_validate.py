@@ -242,3 +242,44 @@ class TestDateFormats:
         feed["published_at"] = "2026-04-18 06:00:00"
         with pytest.raises(jsonschema.ValidationError):
             validate_feed(feed)
+
+
+# ---------------------------------------------------------------------------
+# Province k1p field — optional, must be number >= 0 when present
+# ---------------------------------------------------------------------------
+
+class TestProvinceK1pField:
+    def test_province_with_k1p_passes(self):
+        """A province dict that includes k1p (number >= 0) must pass validation."""
+        feed = copy.deepcopy(VALID_FEED)
+        feed["provinces"]["BC"]["k1p"] = 668.73
+        validate_feed(feed)  # should not raise
+
+    def test_province_without_k1p_passes(self):
+        """A province dict without k1p must still pass validation (field is optional)."""
+        feed = copy.deepcopy(VALID_FEED)
+        # Ensure BC has no k1p key (it doesn't in the base fixture, but be explicit).
+        feed["provinces"]["BC"].pop("k1p", None)
+        validate_feed(feed)  # should not raise
+
+    def test_province_k1p_null_rejected(self):
+        """k1p must be a number when present; null is not accepted."""
+        feed = copy.deepcopy(VALID_FEED)
+        feed["provinces"]["BC"]["k1p"] = None
+        with pytest.raises(jsonschema.ValidationError):
+            validate_feed(feed)
+
+    def test_province_k1p_negative_rejected(self):
+        """k1p must be >= 0; a negative value must be rejected."""
+        feed = copy.deepcopy(VALID_FEED)
+        feed["provinces"]["BC"]["k1p"] = -1.0
+        with pytest.raises(jsonschema.ValidationError):
+            validate_feed(feed)
+
+    def test_province_k1p_string_rejected(self):
+        """k1p must be a number; a string value must be rejected."""
+        feed = copy.deepcopy(VALID_FEED)
+        feed["provinces"]["BC"]["k1p"] = "668.73"
+        with pytest.raises(jsonschema.ValidationError):
+            validate_feed(feed)
+

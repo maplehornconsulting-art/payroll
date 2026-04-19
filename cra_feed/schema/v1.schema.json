@@ -214,6 +214,11 @@
           "type": "number",
           "description": "Provincial/territorial basic personal amount."
         },
+        "k1p": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Provincial/territorial K1P non-refundable tax credit amount. Only present for provinces that publish BPA via a claim codes table (e.g. BC, NL, NT, NU)."
+        },
         "tax_brackets": {
           "$ref": "#/$defs/TaxBracketsArray"
         }

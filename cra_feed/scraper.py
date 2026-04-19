@@ -81,6 +81,14 @@ def _canonical_checksum(data: dict) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+def _province_to_dict(prov: "ProvinceData") -> dict:
+    """Serialize a ProvinceData model, omitting k1p when it is None."""
+    d = prov.model_dump()
+    if d.get("k1p") is None:
+        d.pop("k1p", None)
+    return d
+
+
 # ---------------------------------------------------------------------------
 # Build feed
 # ---------------------------------------------------------------------------
@@ -114,6 +122,7 @@ def build_feed(debug_dir: Path | None = None) -> CRAFeed:
         code: ProvinceData(
             bpa=pdata["bpa"],
             tax_brackets=[TaxBracket(**b) for b in pdata["tax_brackets"]],
+            k1p=pdata.get("k1p"),
         )
         for code, pdata in t4127_data.get("provinces", {}).items()
     }
@@ -135,7 +144,7 @@ def build_feed(debug_dir: Path | None = None) -> CRAFeed:
         "cpp": cpp.model_dump(),
         "cpp2": cpp2.model_dump(),
         "ei": ei.model_dump(),
-        "provinces": {k: v.model_dump() for k, v in provinces.items()},
+        "provinces": {k: _province_to_dict(v) for k, v in provinces.items()},
         "checksum_sha256": "",  # placeholder — filled below
     }
 
@@ -157,6 +166,10 @@ def write_outputs(feed: CRAFeed) -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     feed_dict = feed.model_dump()
+    # k1p is optional; strip it when it is None so JSON output stays clean.
+    for prov in feed_dict.get("provinces", {}).values():
+        if prov.get("k1p") is None:
+            prov.pop("k1p", None)
 
     def _write(path: Path, data: dict) -> None:
         path.write_text(

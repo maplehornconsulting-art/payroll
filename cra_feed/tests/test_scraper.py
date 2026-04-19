@@ -581,8 +581,8 @@ class TestProvinceBpaError:
         </div>
         """
         section_soup = BeautifulSoup(html, "lxml")
-        bpa = _parse_province_bpa(section_soup, "ontario")
-        assert bpa == pytest.approx(11865.0, abs=1.0)
+        result = _parse_province_bpa(section_soup, "ontario")
+        assert result["bpa"] == pytest.approx(11865.0, abs=1.0)
 
     def test_bpa_in_bulleted_list(self):
         """_parse_province_bpa must find BPA expressed in a <ul><li> element."""
@@ -597,6 +597,107 @@ class TestProvinceBpaError:
         </div>
         """
         section_soup = BeautifulSoup(html, "lxml")
-        bpa = _parse_province_bpa(section_soup, "some province")
-        assert bpa == pytest.approx(12000.0, abs=1.0)
+        result = _parse_province_bpa(section_soup, "some province")
+        assert result["bpa"] == pytest.approx(12000.0, abs=1.0)
+
+
+# ---------------------------------------------------------------------------
+# Province BPA – claim codes table strategy (BC, NL, NT, NU)
+# ---------------------------------------------------------------------------
+
+class TestProvinceBpaFromClaimCodes:
+    """Tests for the claim-codes-table BPA extraction strategy (Strategy 5)."""
+
+    def _bc_section_soup(self):
+        from bs4 import BeautifulSoup
+        html = (FIXTURES_DIR / "t4127_bc_claim_codes.html").read_text(encoding="utf-8")
+        return BeautifulSoup(html, "lxml")
+
+    def _nl_section_soup(self):
+        from bs4 import BeautifulSoup
+        html = (FIXTURES_DIR / "t4127_nl_claim_codes.html").read_text(encoding="utf-8")
+        return BeautifulSoup(html, "lxml")
+
+    def test_bc_bpa_from_claim_codes(self):
+        """BC BPA must be extracted from claim code 1's 'Total claim amount to' cell."""
+        from cra_feed.parsers.t4127 import _parse_province_bpa
+
+        result = _parse_province_bpa(self._bc_section_soup(), "british columbia")
+        assert result["bpa"] == pytest.approx(13216.0, abs=0.01)
+
+    def test_bc_k1p_from_claim_codes(self):
+        """BC K1P must be extracted from claim code 1's 'Option 1, K1P ($)' cell."""
+        from cra_feed.parsers.t4127 import _parse_province_bpa
+
+        result = _parse_province_bpa(self._bc_section_soup(), "british columbia")
+        assert "k1p" in result, "k1p must be present in result when claim codes table found"
+        assert result["k1p"] == pytest.approx(668.73, abs=0.01)
+
+    def test_falls_back_only_when_standalone_bpa_missing(self):
+        """When a standalone BPA line is present, use it (claim codes are NOT consulted)."""
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_province_bpa
+
+        # Combine a standalone BPA paragraph with the BC claim codes table.
+        # The standalone BPA ($9,999.00) must win over the claim code 1 value.
+        standalone_html = """
+        <div>
+          <p>Basic personal amount: $9,999.00</p>
+          <table>
+            <caption>Table 8.11 British Columbia claim codes</caption>
+            <thead>
+              <tr>
+                <th>Claim code</th>
+                <th>Total claim amount ($) from</th>
+                <th>Total claim amount ($) to</th>
+                <th>Option 1, TCP ($)</th>
+                <th>Option 1, K1P ($)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>0</td><td>No claim amount</td><td>No claim amount</td><td>0.00</td><td>0.00</td></tr>
+              <tr><td>1</td><td>0.00</td><td>13,216.00</td><td>13,216.00</td><td>668.73</td></tr>
+            </tbody>
+          </table>
+        </div>
+        """
+        section_soup = BeautifulSoup(standalone_html, "lxml")
+        result = _parse_province_bpa(section_soup, "british columbia")
+        assert result["bpa"] == pytest.approx(9999.0, abs=0.01), (
+            "Standalone BPA must take priority over claim codes table"
+        )
+
+    def test_raises_when_neither_present(self):
+        """An empty section must still raise ValueError (no silent $0 fallback)."""
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_province_bpa
+
+        section_soup = BeautifulSoup("<div><p>No tax data here.</p></div>", "lxml")
+        with pytest.raises(ValueError, match="Could not parse BPA"):
+            _parse_province_bpa(section_soup, "british columbia")
+
+    def test_nl_bpa_from_claim_codes(self):
+        """Multi-word province name 'Newfoundland and Labrador' must also work."""
+        from cra_feed.parsers.t4127 import _parse_province_bpa
+
+        result = _parse_province_bpa(self._nl_section_soup(), "newfoundland and labrador")
+        assert result["bpa"] == pytest.approx(10900.0, abs=0.01)
+
+    def test_nl_k1p_from_claim_codes(self):
+        """NL K1P must be extracted correctly from the claim codes table."""
+        from cra_feed.parsers.t4127 import _parse_province_bpa
+
+        result = _parse_province_bpa(self._nl_section_soup(), "newfoundland and labrador")
+        assert "k1p" in result
+        assert result["k1p"] == pytest.approx(948.30, abs=0.01)
+
+    def test_parse_one_province_bc_includes_k1p(self):
+        """_parse_one_province must propagate k1p from _parse_province_bpa."""
+        from cra_feed.parsers.t4127 import _parse_one_province
+
+        result = _parse_one_province(self._bc_section_soup(), "british columbia", "BC")
+        assert result is not None
+        assert result["bpa"] == pytest.approx(13216.0, abs=0.01)
+        assert "k1p" in result
+        assert result["k1p"] == pytest.approx(668.73, abs=0.01)
 

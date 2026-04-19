@@ -872,18 +872,34 @@ def _parse_one_province(soup: BeautifulSoup, prov_name: str, code: str) -> dict 
     if not brackets:
         return None
 
-    # --- BPA ---
-    bpa = _parse_province_bpa(section_soup, prov_name)
+    # --- BPA (and optional K1P) ---
+    bpa_result = _parse_province_bpa(section_soup, prov_name)
+    result: dict = {"bpa": bpa_result["bpa"], "tax_brackets": brackets}
+    if "k1p" in bpa_result:
+        result["k1p"] = bpa_result["k1p"]
+    return result
 
-    return {"bpa": bpa, "tax_brackets": brackets}
 
-
-def _parse_province_bpa(section_soup, prov_name: str) -> float:
+def _parse_province_bpa(section_soup, prov_name: str) -> dict:
     """
-    Extract the provincial Basic Personal Amount from a province's HTML section.
+    Extract the provincial Basic Personal Amount (and optional K1P) from a
+    province's HTML section.
 
-    Looks for dollar amounts associated with keywords "basic personal" or "BPA".
-    Falls back to the largest plausible dollar amount in the section.
+    Tries four strategies in order:
+    1. Dollar amount explicitly labeled as "basic personal amount" or "BPA".
+    2. Same keywords, dollar amount preceding the label.
+    3. List items / paragraphs containing BPA keywords.
+    4. Largest plausible dollar amount in the section.
+    5. Claim codes table — for provinces (e.g. BC, NL, NT, NU) where CRA
+       embeds the BPA in a "claim codes" table rather than a standalone line.
+       Claim code 1's "Total claim amount ($) to" cell = BPA; the matching
+       "Option 1, K1P ($)" cell (if present) is also returned.
+
+    Returns
+    -------
+    dict
+        Always contains ``"bpa": float``.  Contains ``"k1p": float`` when the
+        value was extracted from a claim codes table.
 
     Raises
     ------
@@ -902,7 +918,7 @@ def _parse_province_bpa(section_soup, prov_name: str) -> float:
     m = bpa_re.search(text)
     if m:
         try:
-            return float(m.group(1).replace(",", ""))
+            return {"bpa": float(m.group(1).replace(",", ""))}
         except ValueError:
             pass
 
@@ -914,7 +930,7 @@ def _parse_province_bpa(section_soup, prov_name: str) -> float:
     m = bpa_rev_re.search(text)
     if m:
         try:
-            return float(m.group(1).replace(",", ""))
+            return {"bpa": float(m.group(1).replace(",", ""))}
         except ValueError:
             pass
 
@@ -928,7 +944,7 @@ def _parse_province_bpa(section_soup, prov_name: str) -> float:
             try:
                 v = float(amt_m.group(1).replace(",", ""))
                 if 5_000 < v < 50_000:
-                    return v
+                    return {"bpa": v}
             except ValueError:
                 pass
 
@@ -944,7 +960,67 @@ def _parse_province_bpa(section_soup, prov_name: str) -> float:
             pass
 
     if plausible:
-        return max(plausible)
+        return {"bpa": max(plausible)}
+
+    # Strategy 5: claim codes table (last resort — used by BC, NL, NT, NU).
+    # CRA publishes BPA as claim code 1's "Total claim amount ($) to" value
+    # rather than a standalone line for these provinces/territories.
+    for table in section_soup.find_all("table"):
+        cap = table.find("caption")
+        context = (cap.get_text(" ", strip=True) if cap else "").lower()
+        if "claim codes" not in context:
+            continue
+
+        # Locate header row and identify relevant columns.
+        rows = table.find_all("tr")
+        if not rows:
+            continue
+        header_cells = rows[0].find_all(["th", "td"])
+        headers = [c.get_text(" ", strip=True).lower() for c in header_cells]
+
+        claim_code_col = next(
+            (i for i, h in enumerate(headers) if "claim code" in h), None
+        )
+        total_to_col = next(
+            (
+                i for i, h in enumerate(headers)
+                if "total claim amount" in h and "to" in h.split()
+            ),
+            None,
+        )
+        k1p_col = next(
+            (i for i, h in enumerate(headers) if "k1p" in h), None
+        )
+
+        if claim_code_col is None or total_to_col is None:
+            continue
+
+        # Find claim code 1 row.
+        for row in rows[1:]:
+            cells = row.find_all(["th", "td"])
+            if claim_code_col >= len(cells):
+                continue
+            if cells[claim_code_col].get_text(strip=True) != "1":
+                continue
+            if total_to_col >= len(cells):
+                continue
+            bpa_text = cells[total_to_col].get_text(strip=True).replace(",", "")
+            try:
+                bpa_val = float(bpa_text)
+            except ValueError:
+                continue
+            if not (5_000 < bpa_val < 50_000):
+                continue
+            result: dict = {"bpa": bpa_val}
+            if k1p_col is not None and k1p_col < len(cells):
+                k1p_text = cells[k1p_col].get_text(strip=True).replace(",", "")
+                try:
+                    k1p_val = float(k1p_text)
+                    if k1p_val >= 0:
+                        result["k1p"] = k1p_val
+                except ValueError:
+                    pass
+            return result
 
     raise ValueError(
         f"Could not parse BPA for province {prov_name!r}. "

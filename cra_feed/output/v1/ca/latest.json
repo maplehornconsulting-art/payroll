@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "jurisdiction": "CA",
   "effective_date": "2026-01-01",
-  "published_at": "2026-04-19T06:41:32Z",
+  "published_at": "2026-04-19T22:13:18Z",
   "source_urls": [
     "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas.html",
     "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas/t4127-jan.html",
@@ -82,6 +82,7 @@
           "rate": 0.15
         }
       ],
+      "surtax": [],
       "k1p": 1821.52
     },
     "BC": {
@@ -116,6 +117,7 @@
           "rate": 0.205
         }
       ],
+      "surtax": [],
       "k1p": 668.73
     },
     "MB": {
@@ -134,6 +136,7 @@
           "rate": 0.174
         }
       ],
+      "surtax": [],
       "k1p": 1704.24
     },
     "NB": {
@@ -156,6 +159,7 @@
           "rate": 0.195
         }
       ],
+      "surtax": [],
       "k1p": 1284.42
     },
     "NL": {
@@ -194,6 +198,7 @@
           "rate": 0.218
         }
       ],
+      "surtax": [],
       "k1p": 973.36
     },
     "NS": {
@@ -220,6 +225,7 @@
           "rate": 0.21
         }
       ],
+      "surtax": [],
       "k1p": 1048.82
     },
     "NT": {
@@ -242,6 +248,7 @@
           "rate": 0.1405
         }
       ],
+      "surtax": [],
       "k1p": 1073.68
     },
     "NU": {
@@ -264,6 +271,7 @@
           "rate": 0.115
         }
       ],
+      "surtax": [],
       "k1p": 786.36
     },
     "ON": {
@@ -289,6 +297,16 @@
           "up_to": null,
           "rate": 0.1316
         }
+      ],
+      "surtax": [
+        [
+          5818.0,
+          0.2
+        ],
+        [
+          7446.0,
+          0.36
+        ]
       ],
       "k1p": 655.94
     },
@@ -316,6 +334,7 @@
           "rate": 0.19
         }
       ],
+      "surtax": [],
       "k1p": 1425.0
     },
     "SK": {
@@ -334,6 +353,7 @@
           "rate": 0.145
         }
       ],
+      "surtax": [],
       "k1p": 2140.01
     },
     "YT": {
@@ -360,8 +380,9 @@
           "rate": 0.15
         }
       ],
+      "surtax": [],
       "k1p": 1052.93
     }
   },
-  "checksum_sha256": "c9b28f7cc5a90cc860ac53bf5119b5887c96de611ee67676910c63d382a63796"
+  "checksum_sha256": "ab02457e13f70d31cce78939cc5f2d25954bfb1fd1cba752c6edb03d9dec1ed8"
 }

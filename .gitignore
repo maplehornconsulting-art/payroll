@@ -4,6 +4,9 @@ cra_feed/output/
 # Local scraper transcript logs
 cra_feed/_logs/
 
+# pytest tmp root (used by run_scraper.ps1 to avoid Defender/OneDrive lock)
+cra_feed/_pytest_tmp/
+
 # Python
 __pycache__/
 *.pyc

@@ -1013,7 +1013,7 @@ def _parse_table_82_surtaxes(soup: BeautifulSoup) -> dict[str, list[list[float]]
     if table_82 is None:
         return {}
 
-    def _parse_val(s: str) -> tuple[float, bool]:
+    def _parse_cell_value(s: str) -> tuple[float, bool]:
         """Return (float_value, is_rate). Rate is normalised to [0, 1]."""
         s = s.strip()
         is_pct = s.endswith("%")
@@ -1058,8 +1058,8 @@ def _parse_table_82_surtaxes(soup: BeautifulSoup) -> dict[str, list[list[float]]
         while i + 1 < len(data_cells):
             a, b = data_cells[i], data_cells[i + 1]
             try:
-                va, a_is_rate = _parse_val(a)
-                vb, b_is_rate = _parse_val(b)
+                va, a_is_rate = _parse_cell_value(a)
+                vb, b_is_rate = _parse_cell_value(b)
             except ValueError:
                 i += 1
                 continue

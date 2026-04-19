@@ -8,7 +8,7 @@ from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
 from .cra_tax_update_line import _FEED_TO_RULE_PARAM, _SUPPORTED_PROVINCES
-from ._prov_blob import _build_prov_blob  # noqa: F401 (re-exported for external use)
+from ._prov_blob import _build_prov_blob
 
 _logger = logging.getLogger(__name__) 
 

@@ -985,13 +985,104 @@ def _parse_claim_code_bpas(soup: BeautifulSoup) -> dict[str, dict]:
     return result
 
 
+def _parse_table_82_surtaxes(soup: BeautifulSoup) -> dict[str, list[list[float]]]:
+    """
+    Parse Table 8.2 (Other rates and amounts) for provincial surtax bands.
+
+    Returns
+    -------
+    dict[str, list[list[float]]]
+        ``{prov_code: [[threshold, rate], ...]}`` where *threshold* is the
+        dollar amount above which the surtax applies and *rate* is the
+        cumulative surtax rate normalised to [0, 1].  Example for ON 2026::
+
+            {"ON": [[5818.0, 0.20], [7446.0, 0.36]]}
+
+        Returns ``{}`` if Table 8.2 is absent or no surtax rows are found.
+    """
+    known_codes = set(PROVINCE_NAME_TO_CODE.values())
+
+    # Locate Table 8.2
+    table_82 = None
+    for table in soup.find_all("table"):
+        cap = table.find("caption")
+        if cap and "Table 8.2" in cap.get_text(" ", strip=True):
+            table_82 = table
+            break
+
+    if table_82 is None:
+        return {}
+
+    def _parse_val(s: str) -> tuple[float, bool]:
+        """Return (float_value, is_rate). Rate is normalised to [0, 1]."""
+        s = s.strip()
+        is_pct = s.endswith("%")
+        cleaned = s.replace(",", "").replace("$", "").rstrip("%").strip()
+        if not cleaned:
+            raise ValueError("empty cell")
+        v = float(cleaned)
+        if is_pct:
+            return v / 100.0, True
+        if 0 < v <= 1.0:
+            return v, True
+        if v > 1.0:
+            return v, False
+        raise ValueError(f"Cannot classify cell value: {s!r}")
+
+    result: dict[str, list[list[float]]] = {}
+    current_prov: str | None = None
+
+    for row in table_82.find_all("tr"):
+        cells = row.find_all(["td", "th"])
+        if not cells:
+            continue
+
+        cell_texts = [c.get_text(" ", strip=True) for c in cells]
+        first = cell_texts[0].strip()
+
+        if first in known_codes:
+            current_prov = first
+            if current_prov not in result:
+                result[current_prov] = []
+            data_cells = [t for t in cell_texts[1:] if t.strip()]
+        elif current_prov is not None and first.upper() in ("V1", "V2", ""):
+            data_cells = [t for t in (cell_texts[1:] if first else cell_texts) if t.strip()]
+        else:
+            current_prov = None
+            continue
+
+        # Extract [threshold, rate] pairs from data_cells.
+        # Each pair consists of one threshold (large dollar amount) and one rate
+        # (percentage or decimal ≤ 1).  Both orderings are handled.
+        i = 0
+        while i + 1 < len(data_cells):
+            a, b = data_cells[i], data_cells[i + 1]
+            try:
+                va, a_is_rate = _parse_val(a)
+                vb, b_is_rate = _parse_val(b)
+            except ValueError:
+                i += 1
+                continue
+
+            if not a_is_rate and b_is_rate:
+                result[current_prov].append([va, vb])
+                i += 2
+            elif a_is_rate and not b_is_rate:
+                result[current_prov].append([vb, va])
+                i += 2
+            else:
+                i += 1
+
+    return {k: v for k, v in result.items() if v}
+
+
 def _parse_provinces(soup: BeautifulSoup) -> dict[str, dict]:
     """
     Parse all in-scope provincial/territorial tax data from the T4127 HTML.
 
     Returns a dict keyed by 2-letter province code with values::
 
-        {"bpa": float, "tax_brackets": [...]}
+        {"bpa": float, "tax_brackets": [...], "surtax": [...]}
 
     Raises
     ------
@@ -1018,6 +1109,11 @@ def _parse_provinces(soup: BeautifulSoup) -> dict[str, dict]:
             if bpa_info.get("k1p") is not None:
                 prov_result["k1p"] = bpa_info["k1p"]
             provinces[code] = prov_result
+
+        surtaxes = _parse_table_82_surtaxes(soup)
+        for code in PROVINCE_NAME_TO_CODE.values():
+            if code in provinces:
+                provinces[code]["surtax"] = surtaxes.get(code, [])
         return provinces
 
     # Fallback: legacy per-province <h3>/<h4> section format (pre-2026).
@@ -1033,6 +1129,11 @@ def _parse_provinces(soup: BeautifulSoup) -> dict[str, dict]:
             raise
         except Exception as exc:
             logger.warning("Could not parse province %s (%s): %s", code, prov_name, exc)
+
+    surtaxes = _parse_table_82_surtaxes(soup)
+    for code in PROVINCE_NAME_TO_CODE.values():
+        if code in provinces:
+            provinces[code]["surtax"] = surtaxes.get(code, [])
 
     return provinces
 

@@ -47,6 +47,7 @@ VALID_FEED: dict = {
                 {"up_to": 220000.0, "rate": 0.1216},
                 {"up_to": None, "rate": 0.1316},
             ],
+            "surtax": [[5818.0, 0.20], [7446.0, 0.36]],
         },
         "BC": {
             "bpa": 11981.0,
@@ -55,6 +56,7 @@ VALID_FEED: dict = {
                 {"up_to": 91310.0, "rate": 0.077},
                 {"up_to": None, "rate": 0.105},
             ],
+            "surtax": [],
         },
     },
     "checksum_sha256": "a" * 64,

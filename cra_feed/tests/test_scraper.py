@@ -1231,3 +1231,192 @@ class TestParseProvincesTable81:
         assert "ON" in result
         assert result["ON"]["bpa"] == pytest.approx(11865.0, abs=0.01)
         assert len(result["ON"]["tax_brackets"]) == 3
+
+
+# ---------------------------------------------------------------------------
+# _parse_table_82_surtaxes unit tests
+# ---------------------------------------------------------------------------
+
+class TestParseTable82Surtaxes:
+    """Unit tests for _parse_table_82_surtaxes() using a synthetic HTML fixture."""
+
+    _HTML = """
+    <html><body>
+    <table>
+      <caption>Table 8.2 Other rates and amounts for 2026</caption>
+      <thead>
+        <tr>
+          <th>Province</th>
+          <th>Surtax threshold 1 ($)</th>
+          <th>Surtax rate 1 (V1)</th>
+          <th>Surtax threshold 2 ($)</th>
+          <th>Surtax rate 2 (V2)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>ON</td>
+          <td>$5,818</td>
+          <td>20%</td>
+          <td>$7,446</td>
+          <td>36%</td>
+        </tr>
+      </tbody>
+    </table>
+    </body></html>
+    """
+
+    @pytest.fixture(scope="class")
+    def result(self):
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_table_82_surtaxes
+        soup = BeautifulSoup(self._HTML, "lxml")
+        return _parse_table_82_surtaxes(soup)
+
+    def test_on_present(self, result):
+        assert "ON" in result
+
+    def test_on_two_bands(self, result):
+        assert len(result["ON"]) == 2
+
+    def test_on_first_band(self, result):
+        assert result["ON"][0][0] == pytest.approx(5818.0)
+        assert result["ON"][0][1] == pytest.approx(0.20)
+
+    def test_on_second_band(self, result):
+        assert result["ON"][1][0] == pytest.approx(7446.0)
+        assert result["ON"][1][1] == pytest.approx(0.36)
+
+    def test_exact_value(self, result):
+        assert result == {"ON": [[5818.0, 0.20], [7446.0, 0.36]]}
+
+    def test_returns_empty_when_no_table_82(self):
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_table_82_surtaxes
+        soup = BeautifulSoup("<html><body><p>No table here</p></body></html>", "lxml")
+        assert _parse_table_82_surtaxes(soup) == {}
+
+    def test_returns_empty_when_no_surtax_data(self):
+        """Table 8.2 present but with no province rows → empty dict."""
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_table_82_surtaxes
+        html = """
+        <html><body>
+        <table>
+          <caption>Table 8.2 Other rates and amounts for 2026</caption>
+          <thead><tr><th>Column A</th><th>Column B</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        </body></html>
+        """
+        soup = BeautifulSoup(html, "lxml")
+        assert _parse_table_82_surtaxes(soup) == {}
+
+    def test_decimal_rate_format(self):
+        """Parser must also accept decimal rate format (0.20 instead of 20%)."""
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_table_82_surtaxes
+        html = """
+        <html><body>
+        <table>
+          <caption>Table 8.2 Other rates and amounts for 2026</caption>
+          <tbody>
+            <tr><td>ON</td><td>$5,818</td><td>0.20</td><td>$7,446</td><td>0.36</td></tr>
+          </tbody>
+        </table>
+        </body></html>
+        """
+        soup = BeautifulSoup(html, "lxml")
+        result = _parse_table_82_surtaxes(soup)
+        assert result == {"ON": [[5818.0, 0.20], [7446.0, 0.36]]}
+
+
+# ---------------------------------------------------------------------------
+# _parse_provinces integration test — surtax key present on every province
+# ---------------------------------------------------------------------------
+
+class TestParseProvincesTable81Surtax:
+    """Integration tests for _parse_provinces() surtax injection."""
+
+    _HTML = """
+    <html><body>
+    <!-- Table 8.1: consolidated brackets -->
+    <table>
+      <caption>Table 8.1 Rates (R, V), income thresholds (A), and constants (K, KP) for 2026</caption>
+      <thead>
+        <tr><th></th><th>1st</th><th>2nd</th><th>3rd</th><th>4th</th><th>5th</th><th>6th</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>AB</td><td>A</td><td>0</td><td>61,200</td><td>154,259</td><td>185,111</td><td>246,813</td></tr>
+        <tr><td>V</td><td>0.0800</td><td>0.1000</td><td>0.1200</td><td>0.1300</td><td>0.1400</td><td></td></tr>
+        <tr><td>KP</td><td>0</td><td>1,224</td><td>4,309</td><td>6,160</td><td>8,628</td><td></td></tr>
+        <tr><td>ON</td><td>A</td><td>0</td><td>53,891</td><td>107,785</td><td>150,000</td><td>220,000</td></tr>
+        <tr><td>V</td><td>0.0505</td><td>0.0915</td><td>0.1116</td><td>0.1216</td><td>0.1316</td><td></td></tr>
+        <tr><td>KP</td><td>0</td><td>2,158</td><td>4,831</td><td>7,341</td><td>9,541</td><td></td></tr>
+      </tbody>
+    </table>
+    <!-- Claim codes for AB and ON -->
+    <table>
+      <caption>Table 8.10 Alberta claim codes</caption>
+      <thead>
+        <tr>
+          <th>Claim code</th>
+          <th>Total claim amount ($) from</th>
+          <th>Total claim amount ($) to</th>
+          <th>Option 1, TCP ($)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>0</td><td>No claim amount</td><td>No claim amount</td><td>0.00</td></tr>
+        <tr><td>1</td><td>0.00</td><td>21,003.00</td><td>21,003.00</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <caption>Table 8.12 Ontario claim codes</caption>
+      <thead>
+        <tr>
+          <th>Claim code</th>
+          <th>Total claim amount ($) from</th>
+          <th>Total claim amount ($) to</th>
+          <th>Option 1, TCP ($)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>0</td><td>No claim amount</td><td>No claim amount</td><td>0.00</td></tr>
+        <tr><td>1</td><td>0.00</td><td>12,989.00</td><td>12,989.00</td></tr>
+      </tbody>
+    </table>
+    <!-- Table 8.2: ON surtax -->
+    <table>
+      <caption>Table 8.2 Other rates and amounts for 2026</caption>
+      <tbody>
+        <tr>
+          <td>ON</td>
+          <td>$5,818</td>
+          <td>20%</td>
+          <td>$7,446</td>
+          <td>36%</td>
+        </tr>
+      </tbody>
+    </table>
+    </body></html>
+    """
+
+    @pytest.fixture(scope="class")
+    def provinces(self):
+        from bs4 import BeautifulSoup
+        from cra_feed.parsers.t4127 import _parse_provinces
+        soup = BeautifulSoup(self._HTML, "lxml")
+        return _parse_provinces(soup)
+
+    def test_on_surtax_present(self, provinces):
+        assert "surtax" in provinces["ON"]
+
+    def test_on_surtax_values(self, provinces):
+        assert provinces["ON"]["surtax"] == [[5818.0, 0.20], [7446.0, 0.36]]
+
+    def test_ab_surtax_present(self, provinces):
+        assert "surtax" in provinces["AB"]
+
+    def test_ab_surtax_empty(self, provinces):
+        assert provinces["AB"]["surtax"] == []

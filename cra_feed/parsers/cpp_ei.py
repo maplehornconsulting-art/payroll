@@ -415,7 +415,14 @@ def _parse_ei_page(html: str) -> dict:
         prev_heading = table.find_previous(["h2", "h3", "h4"])
         heading_text = prev_heading.get_text(" ", strip=True).lower() if prev_heading else ""
         context = f"{cap_text} {heading_text}"
-        if "quebec" in context or "québec" in context:
+        # Skip Quebec-specific EI tables, but keep the federal table whose
+        # heading reads "...(outside Quebec)".
+        is_quebec_specific = (
+            ("quebec" in context or "québec" in context)
+            and "outside quebec" not in context
+            and "outside québec" not in context
+        )
+        if is_quebec_specific:
             continue
 
         for tds in data_rows:

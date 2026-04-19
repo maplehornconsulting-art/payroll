@@ -206,6 +206,48 @@ and a worked payslip example.
 
 ---
 
+## Remittances & Annual Reporting
+
+Starting with **v19.0.2.0**, the module includes a complete Canadian payroll
+remittance workflow directly alongside the payroll computation and GL posting
+features.
+
+### 🏦 Remittance Workflow
+
+1. **Remittance Configuration** — set your CRA remitter type, Business Number,
+   WCB/EHT account numbers, and default bank journal per company.
+2. **Auto-creation (daily cron)** — draft `Remittance` records are created
+   automatically each day for applicable periods.
+3. **Review & Confirm** — review aggregated liability balances, print the
+   PD7A Voucher PDF, then click **Confirm** to lock the record and generate
+   the clearing journal entry.
+4. **Register Payment** — the payment wizard creates an `account.payment` to
+   the Receiver General, posts the journal entry, and reconciles the clearing
+   account.
+
+### 📊 Annual Reporting Dashboard
+
+Access via **Payroll → Year-End Reporting**:
+
+| Menu Item | Purpose |
+|---|---|
+| **Owing Now** | All unpaid/unconfirmed remittances — quick view of open liabilities |
+| **Remittances** | Full list, searchable/filterable, grouped by type with totals |
+| **Overdue Remittances** | Kanban of past-due remittances (highlighted red) |
+| **Remittance Configuration** | Manager-only config per company |
+
+### ✅ T4 ↔ PD7A Annual Reconciliation
+
+Call `get_t4_reconciliation(year=2026)` on the `l10n.ca.remittance` model to
+compare paid PD7A remittances against T4 box totals (Box 16 CPP + Box 18 EI
++ Box 22 Federal Tax).  The widget returns `match=True` when the delta is
+within $1.00 — matching CRA's T4 Summary Box 82 cross-check.
+
+See [`docs/REMITTANCES.md`](docs/REMITTANCES.md) for the full remittance
+workflow documentation, due-date schedule, and reconciliation guide.
+
+---
+
 ## Compatibility
 
 | | Version |
@@ -306,6 +348,20 @@ A future `l10n_ca_qc_hr_payroll` module may be developed for Quebec.
 ---
 
 ## Changelog
+
+### v2.0 (April 2026) — Remittances & Annual Reporting
+
+- ✅ Added full Canadian payroll remittance workflow inside the module
+- ✅ Remittance configuration per company (CRA remitter type, BN, WCB, EHT)
+- ✅ Daily cron auto-creates draft `l10n.ca.remittance` records per CRA schedule
+- ✅ Due-date computation for all remitter types with weekend rollover
+- ✅ Liability account aggregation from posted payslip journal entries
+- ✅ Confirm → journal entry; Pay → `account.payment` to Receiver General
+- ✅ Annual dashboard: Owing Now, This Year's Remittances, Late Warnings
+- ✅ T4 ↔ PD7A annual reconciliation widget (match within $1 = green ✓)
+- ✅ PD7A Remittance Voucher PDF (QWeb) with itemized breakdown
+- ✅ Optional PD7A CSV export (draft CRA format)
+- ✅ Idempotent post_init_hook creates CRA partner + RemittanceConfig per company
 
 ### v1.4 (April 2026) — Accounting Integration
 - ✅ Added `hr_payroll_account` and `l10n_ca` to module dependencies — confirming a payslip now generates a balanced `account.move` in the Salary Journal

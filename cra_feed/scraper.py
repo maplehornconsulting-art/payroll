@@ -32,6 +32,7 @@ from cra_feed.schema import (
     ProvinceData,
     TaxBracket,
 )
+from cra_feed.validate import validate_feed
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -139,6 +140,9 @@ def build_feed() -> CRAFeed:
     }
 
     raw["checksum_sha256"] = _canonical_checksum(raw)
+
+    # Validate against JSON Schema before Pydantic validation.
+    validate_feed(raw)
 
     # Validate with Pydantic before writing.
     feed = CRAFeed.model_validate(raw)

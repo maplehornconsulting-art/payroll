@@ -44,6 +44,9 @@ jobs:
       - name: Run scraper
         run: python -m cra_feed.scraper
 
+      - name: Validate generated feed
+        run: python -m cra_feed.validate cra_feed/output/v1/ca/latest.json
+
       - name: Import GPG key and sign JSON files
         if: ${{ env.CRA_FEED_GPG_KEY != '' }}
         env:

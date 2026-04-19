@@ -212,3 +212,42 @@ python -m cra_feed.scraper
 ```
 
 The scraper caches raw HTML responses under `cra_feed/cache/` (git-ignored). Delete the cache to force a fresh fetch.
+
+---
+
+## Schema validation
+
+The feed JSON is validated against a machine-readable JSON Schema (draft 2020-12) on every scraper run and in the GitHub Actions workflow before publishing to GitHub Pages.
+
+**Schema file:** `cra_feed/schema/v1.schema.json`
+
+This file is the **single source of truth** for the v1 contract. It documents and enforces:
+
+- Required top-level fields and their types
+- Exact values for `schema_version` (`"1.0"`) and `jurisdiction` (`"CA"`)
+- ISO 8601 date/datetime patterns for `effective_date` and `published_at`
+- Federal and provincial tax bracket structure (including that the last bracket must have `up_to: null`)
+- Allowed province/territory codes (ON, BC, AB, SK, MB, NB, NS, PE, NL, YT, NT, NU — QC excluded)
+- Lowercase hex-only `checksum_sha256`
+- No unknown fields (`additionalProperties: false` at every level)
+
+### CLI usage
+
+Validate any feed file from the command line:
+
+```bash
+python -m cra_feed.validate cra_feed/output/v1/ca/latest.json
+# Prints: OK: cra_feed/output/v1/ca/latest.json is valid.
+
+python -m cra_feed.validate /path/to/bad_feed.json
+# Prints validation error details to stderr and exits non-zero.
+```
+
+### Python API
+
+```python
+from cra_feed.validate import validate_feed
+
+# Raises jsonschema.ValidationError on failure.
+validate_feed(feed_dict)
+```

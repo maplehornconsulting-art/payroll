@@ -7,6 +7,45 @@ from odoo import api, models
 class HrPayslip(models.Model):
     _inherit = 'hr.payslip'
 
+    # Mapping from Odoo schedule_pay selection values to periods per year.
+    _L10N_CA_SCHEDULE_PERIODS = {
+        'annually': 1,
+        'semi-annually': 2,
+        'quarterly': 4,
+        'bi-monthly': 6,
+        'monthly': 12,
+        'semi-monthly': 24,
+        'bi-weekly': 26,
+        'weekly': 52,
+        'daily': 260,
+    }
+
+    def _l10n_ca_periods_per_year(self):
+        """Return the number of pay periods per year for this payslip's schedule.
+
+        Reads the schedule from the Structure Type's ``default_schedule_pay``
+        field, falling back to the contract's ``schedule_pay``, and finally to
+        bi-weekly (26) if neither is set.
+        """
+        self.ensure_one()
+        mapping = {
+            'annually': 1,
+            'semi-annually': 2,
+            'quarterly': 4,
+            'bi-monthly': 6,
+            'monthly': 12,
+            'semi-monthly': 24,
+            'bi-weekly': 26,
+            'weekly': 52,
+            'daily': 260,
+        }
+        sp = (
+            (self.struct_id.type_id and self.struct_id.type_id.default_schedule_pay)
+            or (self.contract_id and self.contract_id.schedule_pay)
+            or 'bi-weekly'
+        )
+        return mapping.get(sp, 26)
+
     def _get_paid_amount(self):
         self.ensure_one()
         if self.struct_id.country_id.code == 'CA':
@@ -71,6 +110,8 @@ class HrPayslip(models.Model):
         gross = payslip._get_line_values(['GROSS'], compute_sum=True)
         gross_amount = gross.get('GROSS', {}).get(payslip.id, {}).get('total', 0)
 
+        periods = payslip._l10n_ca_periods_per_year()
+
         # Pre-compute employee contributions needed for employer calculations
         employer_deps = {
             'CPP_ER': 'CPP_EE',
@@ -88,19 +129,22 @@ class HrPayslip(models.Model):
                 if payslip.version_id.l10n_ca_cpp_exempt:
                     result[code][payslip.id] = {'total': 0}
                     continue
-                pensionable = min(gross_amount, cpp_ympe) - cpp_exemption
+                pensionable = min(gross_amount, cpp_ympe / periods) - cpp_exemption / periods
                 if pensionable < 0:
                     pensionable = 0
-                cpp_contribution = min(pensionable * cpp_rate, cpp_max)
+                cpp_contribution = min(pensionable * cpp_rate, cpp_max / periods)
                 result[code][payslip.id] = {'total': round(cpp_contribution, 2)}
 
             elif code == 'CPP2_EE':
                 if payslip.version_id.l10n_ca_cpp_exempt:
                     result[code][payslip.id] = {'total': 0}
                     continue
-                if gross_amount > cpp_ympe:
-                    cpp2_pensionable = min(gross_amount, cpp2_ceiling) - cpp_ympe
-                    cpp2_contribution = min(cpp2_pensionable * cpp2_rate, cpp2_max)
+                period_ympe = cpp_ympe / periods
+                period_ceiling = cpp2_ceiling / periods
+                period_max = cpp2_max / periods
+                if gross_amount > period_ympe:
+                    cpp2_pensionable = min(gross_amount, period_ceiling) - period_ympe
+                    cpp2_contribution = min(cpp2_pensionable * cpp2_rate, period_max)
                 else:
                     cpp2_contribution = 0
                 result[code][payslip.id] = {'total': round(cpp2_contribution, 2)}
@@ -109,22 +153,22 @@ class HrPayslip(models.Model):
                 if payslip.version_id.l10n_ca_ei_exempt:
                     result[code][payslip.id] = {'total': 0}
                     continue
-                insurable = min(gross_amount, ei_max_insurable)
-                ei_premium = min(insurable * ei_rate, ei_max_premium)
+                insurable = min(gross_amount, ei_max_insurable / periods)
+                ei_premium = min(insurable * ei_rate, ei_max_premium / periods)
                 result[code][payslip.id] = {'total': round(ei_premium, 2)}
 
             elif code == 'FED_TAX':
-                annual_income = gross_amount * 12  # Annualize monthly gross
+                annual_income = gross_amount * periods
                 tax = self._compute_progressive_tax(annual_income, fed_brackets)
                 credit = fed_bpa * fed_brackets[0][1]  # BPA credit at lowest bracket rate
                 annual_tax = max(tax - credit, 0)
                 additional = payslip.version_id.l10n_ca_additional_tax or 0
-                result[code][payslip.id] = {'total': round(annual_tax / 12 + additional, 2)}
+                result[code][payslip.id] = {'total': round(annual_tax / periods + additional, 2)}
 
             elif code == 'PROV_TAX':
-                annual_income = gross_amount * 12
+                annual_income = gross_amount * periods
                 tax = self._compute_progressive_tax(annual_income, prov_brackets)
-                result[code][payslip.id] = {'total': round(tax / 12, 2)}
+                result[code][payslip.id] = {'total': round(tax / periods, 2)}
 
             elif code == 'CPP_ER':
                 cpp_ee = result.get('CPP_EE', {}).get(payslip.id, {}).get('total', 0)

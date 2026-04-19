@@ -11,7 +11,7 @@
         'hr_payroll_holidays',
     ],
     'auto_install': False,
-    'version': '19.0.1.5',
+    'version': '19.0.1.6',
     'description': """
 Canada Payroll Rules.
 =====================
@@ -37,6 +37,7 @@ Canada Payroll Rules.
     * Record of Employment (ROE) with XML Export
     * Period-aware salary rules (weekly / bi-weekly / semi-monthly / monthly / quarterly / annually)
     * Ship both Hourly and Salaried Canadian structure types out of the box.
+    * Use Python-literal (not JSON) for hr.rule.parameter values; required by Odoo's safe_eval validator.
     """,
     'data': [
         'security/ir.model.access.csv',

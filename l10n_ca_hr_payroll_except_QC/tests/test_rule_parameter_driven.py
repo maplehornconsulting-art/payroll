@@ -14,7 +14,7 @@ Odoo instance.
 
 from __future__ import annotations
 
-import json
+import ast
 
 import pytest
 
@@ -45,8 +45,8 @@ def _prov_tax(gross: float, periods: int, province: str, prov_config_raw=None) -
     PROV_RAW = None
     if isinstance(prov_config_raw, str):
         try:
-            PROV_RAW = json.loads(prov_config_raw)
-        except (ValueError, TypeError):
+            PROV_RAW = ast.literal_eval(prov_config_raw)
+        except (ValueError, SyntaxError):
             PROV_RAW = None
     elif isinstance(prov_config_raw, dict):
         PROV_RAW = prov_config_raw
@@ -130,8 +130,8 @@ def _ohp(gross: float, periods: int, ohp_config_raw=None) -> float:
     OHP_CFG = None
     if isinstance(ohp_config_raw, str):
         try:
-            OHP_CFG = json.loads(ohp_config_raw)
-        except (ValueError, TypeError):
+            OHP_CFG = ast.literal_eval(ohp_config_raw)
+        except (ValueError, SyntaxError):
             OHP_CFG = None
     elif isinstance(ohp_config_raw, dict):
         OHP_CFG = ohp_config_raw
@@ -194,8 +194,8 @@ class TestProvTaxReadsParameter:
             f"Large BPA should reduce withholding: got {result_with_param} vs baseline {result_baseline}"
         )
 
-    def test_reads_json_string_parameter(self):
-        """When parameter is a JSON string, it is parsed and used."""
+    def test_reads_python_literal_string_parameter(self):
+        """When parameter is a Python-literal string, it is parsed and used."""
         param = {
             'NS': {
                 'brackets': [[30995, 0.0879], [61991, 0.1495], [97417, 0.1667], [157124, 0.175], [0, 0.21]],
@@ -203,11 +203,11 @@ class TestProvTaxReadsParameter:
                 'surtax': [],
             }
         }
-        param_json = json.dumps(param)
-        result_json = _prov_tax(_GROSS, _PERIODS_WEEKLY, _NS_PROVINCE, prov_config_raw=param_json)
+        param_literal = repr(param)
+        result_literal = _prov_tax(_GROSS, _PERIODS_WEEKLY, _NS_PROVINCE, prov_config_raw=param_literal)
         result_dict = _prov_tax(_GROSS, _PERIODS_WEEKLY, _NS_PROVINCE, prov_config_raw=param)
         # Both forms must produce identical results
-        assert result_json == result_dict
+        assert result_literal == result_dict
 
     def test_high_bpa_produces_zero_or_lower_withholding(self):
         """With bpa=99999 the BPA credit exceeds all provincial tax → 0."""
@@ -265,14 +265,14 @@ class TestProvTaxFallback:
         result_none = _prov_tax(_GROSS, _PERIODS_WEEKLY, _NS_PROVINCE, prov_config_raw=None)
         assert result_empty == result_none
 
-    def test_fallback_on_malformed_json_string(self):
-        """Malformed JSON string triggers fallback; result equals None fallback."""
-        result_bad = _prov_tax(_GROSS, _PERIODS_WEEKLY, _NS_PROVINCE, prov_config_raw="{bad json!!}")
+    def test_fallback_on_invalid_literal_string(self):
+        """Invalid Python literal string triggers fallback; result equals None fallback."""
+        result_bad = _prov_tax(_GROSS, _PERIODS_WEEKLY, _NS_PROVINCE, prov_config_raw="{bad literal!!}")
         result_none = _prov_tax(_GROSS, _PERIODS_WEEKLY, _NS_PROVINCE, prov_config_raw=None)
         assert result_bad == result_none
 
-    def test_fallback_on_empty_json_string(self):
-        """Empty JSON string (invalid JSON) triggers fallback."""
+    def test_fallback_on_empty_string(self):
+        """Empty string (invalid literal) triggers fallback."""
         result_empty = _prov_tax(_GROSS, _PERIODS_WEEKLY, _NS_PROVINCE, prov_config_raw="")
         result_none = _prov_tax(_GROSS, _PERIODS_WEEKLY, _NS_PROVINCE, prov_config_raw=None)
         assert result_empty == result_none
@@ -318,8 +318,8 @@ class TestOhpReadsParameter:
         # With lowered boundary, the tier transition happens earlier → different OHP
         assert result_modified != result_default
 
-    def test_reads_json_string_parameter(self):
-        """JSON string parameter is parsed and produces same result as dict."""
+    def test_reads_python_literal_string_parameter(self):
+        """Python-literal string parameter is parsed and produces same result as dict."""
         cfg = {'tiers': [
             {'upto':  20000, 'base':   0, 'rate': 0,      'cap':   0},
             {'upto':  36000, 'base':   0, 'rate': 0.06,   'cap': 300},
@@ -329,8 +329,8 @@ class TestOhpReadsParameter:
             {'upto':   None, 'base': 900, 'rate': 0,      'cap':   0},
         ]}
         result_dict = _ohp(_GROSS, _PERIODS_WEEKLY, ohp_config_raw=cfg)
-        result_json = _ohp(_GROSS, _PERIODS_WEEKLY, ohp_config_raw=json.dumps(cfg))
-        assert result_dict == result_json
+        result_literal = _ohp(_GROSS, _PERIODS_WEEKLY, ohp_config_raw=repr(cfg))
+        assert result_dict == result_literal
 
 
 class TestOhpFallback:
@@ -342,9 +342,9 @@ class TestOhpFallback:
         result = _ohp(_GROSS, _PERIODS_WEEKLY, ohp_config_raw=None)
         assert result < 0, "OHP should be negative"
 
-    def test_fallback_on_malformed_json(self):
-        """Malformed JSON triggers fallback; result equals None fallback."""
-        result_bad = _ohp(_GROSS, _PERIODS_WEEKLY, ohp_config_raw="not json")
+    def test_fallback_on_invalid_literal(self):
+        """Invalid Python literal string triggers fallback; result equals None fallback."""
+        result_bad = _ohp(_GROSS, _PERIODS_WEEKLY, ohp_config_raw="not a literal")
         result_none = _ohp(_GROSS, _PERIODS_WEEKLY, ohp_config_raw=None)
         assert result_bad == result_none
 
@@ -382,3 +382,78 @@ class TestOhpFallback:
         expected_annual = 450 + min((72000 - 48000) * 0.0025, 150)  # = 450 + 60 = 510
         expected_period = round(-(expected_annual / 52), 2)
         assert result == expected_period
+
+
+# ---------------------------------------------------------------------------
+# Regression: hr_rule_parameters_data.xml values must survive ast.literal_eval
+# ---------------------------------------------------------------------------
+# These tests simulate what Odoo's safe_eval does when loading parameter values
+# from the data files. Any JSON-only token (null/true/false) would cause a
+# NameError in production; these tests catch that before deployment.
+
+
+_OHP_CONFIG_2026_VALUE = """{
+  "tiers": [
+    {"upto":  20000, "base":   0, "rate": 0,      "cap":   0},
+    {"upto":  36000, "base":   0, "rate": 0.06,   "cap": 300},
+    {"upto":  48000, "base": 300, "rate": 0.06,   "cap": 150},
+    {"upto":  72000, "base": 450, "rate": 0.0025, "cap": 150},
+    {"upto": 200000, "base": 600, "rate": 0.0025, "cap": 300},
+    {"upto":  None,  "base": 900, "rate": 0,      "cap":   0}
+  ]
+}"""
+
+_PROV_TAX_CONFIG_2025_VALUE = """{
+  "ON": {
+    "brackets": [[53891, 0.0505], [107785, 0.0915], [150000, 0.1116], [220000, 0.1216], [0, 0.1316]],
+    "bpa": 12989,
+    "surtax": [[5818, 0.20], [7446, 0.36]]
+  },
+  "AB": {
+    "brackets": [[61200, 0.08], [154259, 0.10], [185111, 0.12], [246813, 0.13], [370220, 0.14], [0, 0.15]],
+    "bpa": 22769,
+    "surtax": []
+  },
+  "NS": {
+    "brackets": [[30995, 0.0879], [61991, 0.1495], [97417, 0.1667], [157124, 0.175], [0, 0.21]],
+    "bpa": 11932,
+    "surtax": []
+  }
+}"""
+
+
+class TestParameterValuesSafeEvalCompatible:
+    """Embedded parameter values must be parseable by ast.literal_eval (= safe_eval)."""
+
+    def test_ohp_config_2026_no_json_null(self):
+        """OHP config must not contain the JSON 'null' token."""
+        assert "null" not in _OHP_CONFIG_2026_VALUE, (
+            "OHP config contains 'null' — must use Python 'None'"
+        )
+
+    def test_ohp_config_2026_ast_literal_eval(self):
+        """OHP config value must be parseable by ast.literal_eval without error."""
+        result = ast.literal_eval(_OHP_CONFIG_2026_VALUE)
+        assert isinstance(result, dict)
+        assert "tiers" in result
+        tiers = result["tiers"]
+        assert len(tiers) == 6
+        # The open-ended top tier must have upto=None (Python None, not JSON null)
+        assert tiers[-1]["upto"] is None
+
+    def test_prov_tax_config_2025_no_json_null(self):
+        """Provincial tax config must not contain the JSON 'null' token."""
+        assert "null" not in _PROV_TAX_CONFIG_2025_VALUE, (
+            "Prov tax config contains 'null' — must use Python 'None'"
+        )
+
+    def test_prov_tax_config_2025_ast_literal_eval(self):
+        """Provincial tax config value must be parseable by ast.literal_eval."""
+        result = ast.literal_eval(_PROV_TAX_CONFIG_2025_VALUE)
+        assert isinstance(result, dict)
+        assert "ON" in result
+        assert "AB" in result
+        assert "NS" in result
+        assert isinstance(result["ON"]["bpa"], int)
+        assert isinstance(result["ON"]["brackets"], list)
+        assert isinstance(result["ON"]["surtax"], list)

@@ -2,7 +2,7 @@
 
 {
     'name': 'Canada - Payroll CRA Auto-Update Connector',
-    'version': '19.0.1.0',
+    'version': '19.0.1.1',
     'category': 'Human Resources/Payroll',
     'countries': ['ca'],
     'summary': (
@@ -14,6 +14,7 @@ Canada Payroll — CRA Auto-Update Connector
 ==========================================
 
 * Free companion module for Canada - Payroll (l10n_ca_hr_payroll_except_QC).
+* Use Python-literal (not JSON) for hr.rule.parameter values; required by Odoo's safe_eval validator.
 
 **What it does**
 

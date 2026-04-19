@@ -8,6 +8,7 @@ the Odoo import chain in the parent package.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import pathlib
@@ -162,11 +163,11 @@ class TestBuildProvBlob:
 # 'surtax' keys produced by the connector, normalising at read-time).
 
 
-def _prov_tax_from_blob(blob_json: str, province: str, gross: float, periods: int) -> float:
+def _prov_tax_from_blob(blob_literal: str, province: str, gross: float, periods: int) -> float:
     """Replicate PROV_TAX rule logic reading from a connector-produced blob."""
     annual_income = gross * periods
 
-    PROV_RAW = json.loads(blob_json)
+    PROV_RAW = ast.literal_eval(blob_literal)
 
     cfg_raw = PROV_RAW.get(province) or PROV_RAW.get('ON') or {}
     cfg = {
@@ -233,30 +234,30 @@ class TestConnectorBlobFlowsIntoProcTaxRule:
     }
 
     @pytest.fixture(scope="class")
-    def blob_json(self):
+    def blob_literal(self):
         blob = _build_prov_blob(self._PROVINCES_2027)
-        return json.dumps(blob, indent=2, ensure_ascii=False, sort_keys=True)
+        return repr(blob)
 
-    def test_blob_is_valid_json(self, blob_json):
-        """Connector blob must be valid JSON."""
-        parsed = json.loads(blob_json)
+    def test_blob_is_valid_python_literal(self, blob_literal):
+        """Connector blob must be a valid Python literal (ast.literal_eval-safe)."""
+        parsed = ast.literal_eval(blob_literal)
         assert isinstance(parsed, dict)
 
-    def test_blob_uses_brackets_key(self, blob_json):
+    def test_blob_uses_brackets_key(self, blob_literal):
         """Connector blob keys are 'brackets', 'bpa', 'surtax' (not 'b'/'st')."""
-        parsed = json.loads(blob_json)
+        parsed = ast.literal_eval(blob_literal)
         assert "brackets" in parsed["NS"]
         assert "bpa" in parsed["NS"]
         assert "surtax" in parsed["NS"]
 
-    def test_rule_reads_connector_bpa(self, blob_json):
+    def test_rule_reads_connector_bpa(self, blob_literal):
         """After connector runs, PROV_TAX reflects the new BPA from the blob."""
         gross = 1203.13
         periods = 52
-        result_2027 = _prov_tax_from_blob(blob_json, "NS", gross, periods)
+        result_2027 = _prov_tax_from_blob(blob_literal, "NS", gross, periods)
         # With bpa=12500 (> 2026 baseline 11932) → less withholding
         result_2026 = _prov_tax_from_blob(
-            json.dumps(_build_prov_blob({"NS": {
+            repr(_build_prov_blob({"NS": {
                 "bpa": 11932,
                 "tax_brackets": [
                     {"up_to": 30995, "rate": 0.0879},
@@ -273,10 +274,72 @@ class TestConnectorBlobFlowsIntoProcTaxRule:
             "Higher 2027 BPA should reduce PROV_TAX withholding vs 2026 baseline"
         )
 
-    def test_on_surtax_flows_through(self, blob_json):
+    def test_on_surtax_flows_through(self, blob_literal):
         """ON surtax from connector blob is applied correctly in rule logic."""
         # ON income high enough to trigger surtax
         gross_high = 200000 / 52
-        result = _prov_tax_from_blob(blob_json, "ON", gross_high, 52)
+        result = _prov_tax_from_blob(blob_literal, "ON", gross_high, 52)
         assert result < 0, "ON PROV_TAX at high income should be negative"
 
+
+# ---------------------------------------------------------------------------
+# Regression: repr() serialisation is safe_eval / ast.literal_eval compatible
+# ---------------------------------------------------------------------------
+
+
+class TestReprSerialisation:
+    """repr() of prov blob must not contain JSON-only tokens and must round-trip."""
+
+    _PROVINCES = {
+        "ON": {
+            "bpa": 12989,
+            "tax_brackets": [
+                {"up_to": 53891, "rate": 0.0505},
+                {"up_to": None, "rate": 0.1316},
+            ],
+            "surtax": [[5818, 0.20], [7446, 0.36]],
+        },
+        "AB": {
+            "bpa": 22769,
+            "tax_brackets": [
+                {"up_to": 61200, "rate": 0.08},
+                {"up_to": None, "rate": 0.15},
+            ],
+            "surtax": [],
+        },
+    }
+
+    @pytest.fixture(scope="class")
+    def blob(self):
+        return _build_prov_blob(self._PROVINCES)
+
+    @pytest.fixture(scope="class")
+    def literal(self, blob):
+        return repr(blob)
+
+    def test_no_json_null_token(self, literal):
+        """repr() must not contain the JSON 'null' token."""
+        assert "null" not in literal, f"'null' found in repr output: {literal!r}"
+
+    def test_no_json_true_token(self, literal):
+        """repr() must not contain the JSON 'true' token."""
+        assert "true" not in literal, f"'true' found in repr output: {literal!r}"
+
+    def test_no_json_false_token(self, literal):
+        """repr() must not contain the JSON 'false' token."""
+        assert "false" not in literal, f"'false' found in repr output: {literal!r}"
+
+    def test_ast_literal_eval_roundtrip(self, blob, literal):
+        """ast.literal_eval(repr(blob)) must recover the original dict exactly."""
+        recovered = ast.literal_eval(literal)
+        assert recovered == blob
+
+    def test_repr_literal_passes_ast_literal_eval(self, literal):
+        """ast.literal_eval must not raise on the repr() string."""
+        result = ast.literal_eval(literal)
+        assert isinstance(result, dict)
+
+    def test_open_ended_bracket_is_zero_not_none(self, blob):
+        """The open-ended bracket encodes as 0 (not None) so no null appears."""
+        top_on = blob["ON"]["brackets"][-1]
+        assert top_on[0] == 0, "Open-ended bracket must be 0, not None"

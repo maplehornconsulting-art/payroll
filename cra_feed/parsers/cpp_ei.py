@@ -83,6 +83,7 @@ def _normalize_header(text: str) -> str:
 
 def _clean_header_text(th) -> str:
     """Extract clean column header text from a canada.ca <th> cell."""
+    from bs4 import NavigableString
     th_copy = copy.deepcopy(th)
     to_remove = [
         tag for tag in th_copy.find_all(["span", "a"])
@@ -91,8 +92,11 @@ def _clean_header_text(th) -> str:
     ]
     for tag in to_remove:
         tag.decompose()
-    # Unwrap any remaining inline styling tags (e.g. <span style="...">r</span>
-    # in canada.ca's "Yea<span>r</span>" header) so their text fuses with siblings.
+    # Replace <br> with explicit space text (so "Maximum<br>annual" -> "Maximum annual")
+    for br in th_copy.find_all("br"):
+        br.replace_with(NavigableString(" "))
+    # Unwrap remaining inline styling tags so their text fuses with siblings
+    # (e.g. "Yea<span style='...'>r</span>" -> "Year")
     for tag in th_copy.find_all(["span", "b", "i", "em", "strong"]):
         tag.unwrap()
     text = th_copy.get_text(separator="", strip=True)

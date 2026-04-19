@@ -305,7 +305,7 @@ annual_income = taxable_per_period * periods
 # Get province from employee record (falls back to ON)
 province = employee.l10n_ca_province_id.code or 'ON'
 
-import json  # each salary rule runs in its own exec context — import is required per rule
+import ast  # each salary rule runs in its own exec context — import is required per rule
 
 # Read consolidated provincial tax config from the rule parameter
 # (written by the CRA connector each year). Falls back to the
@@ -315,8 +315,8 @@ prov_config_raw = payslip._rule_parameter('l10n_ca_prov_tax_config')
 PROV_RAW = None
 if isinstance(prov_config_raw, str):
     try:
-        PROV_RAW = json.loads(prov_config_raw)
-    except (ValueError, TypeError):
+        PROV_RAW = ast.literal_eval(prov_config_raw)
+    except (ValueError, SyntaxError):
         PROV_RAW = None
 elif isinstance(prov_config_raw, dict):
     PROV_RAW = prov_config_raw
@@ -398,13 +398,13 @@ taxable_per_period = gross_amount - rrsp - union
 periods = payslip._l10n_ca_periods_per_year()
 annual_income = taxable_per_period * periods
 
-import json  # each salary rule runs in its own exec context — import is required per rule
+import ast  # each salary rule runs in its own exec context — import is required per rule
 ohp_config_raw = payslip._rule_parameter('l10n_ca_ohp_config')
 OHP_CFG = None
 if isinstance(ohp_config_raw, str):
     try:
-        OHP_CFG = json.loads(ohp_config_raw)
-    except (ValueError, TypeError):
+        OHP_CFG = ast.literal_eval(ohp_config_raw)
+    except (ValueError, SyntaxError):
         OHP_CFG = None
 elif isinstance(ohp_config_raw, dict):
     OHP_CFG = ohp_config_raw

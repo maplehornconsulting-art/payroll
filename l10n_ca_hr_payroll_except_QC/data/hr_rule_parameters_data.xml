@@ -350,7 +350,7 @@
     {"upto":  48000, "base": 300, "rate": 0.06,   "cap": 150},
     {"upto":  72000, "base": 450, "rate": 0.0025, "cap": 150},
     {"upto": 200000, "base": 600, "rate": 0.0025, "cap": 300},
-    {"upto":  null,  "base": 900, "rate": 0,      "cap":   0}
+    {"upto":  None,  "base": 900, "rate": 0,      "cap":   0}
   ]
 }</field>
     </record>

@@ -1,5 +1,6 @@
 # Part of MHC. See LICENSE file for full copyright and licensing details.
 
+import ast
 import json
 import logging
 from datetime import datetime
@@ -137,8 +138,8 @@ class CraTaxUpdate(models.Model):
                 _add(f"federal.tax_brackets[{idx}].up_to", bracket["up_to"])
             _add(f"federal.tax_brackets[{idx}].rate", bracket.get("rate"))
         prov_blob = _build_prov_blob(payload.get("provinces", {}))
-        prov_json = json.dumps(prov_blob, indent=2, ensure_ascii=False, sort_keys=True)
-        _add("provinces", prov_json, vtype="json")
+        prov_literal = repr(prov_blob)
+        _add("provinces", prov_literal, vtype="json")
         return lines
 
     def action_review(self):
@@ -176,10 +177,10 @@ class CraTaxUpdate(models.Model):
                 continue
             if line.value_type == "json":
                 try:
-                    json.loads(line.new_value)
-                except (json.JSONDecodeError, ValueError) as exc:
+                    ast.literal_eval(line.new_value)
+                except (ValueError, SyntaxError) as exc:
                     raise UserError(
-                        _("Invalid JSON for parameter %(path)s: %(error)s")
+                        _("Invalid Python literal for parameter %(path)s: %(error)s")
                         % {"path": line.path, "error": exc}
                     ) from exc
             existing_val = self.env["hr.rule.parameter.value"].search([("rule_parameter_id", "=", param.id), ("date_from", "=", effective_date)], limit=1)

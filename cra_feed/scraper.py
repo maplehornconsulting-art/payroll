@@ -97,7 +97,7 @@ def build_feed(debug_dir: Path | None = None) -> CRAFeed:
     session = _make_session()
 
     t4127_data = t4127.parse(session, debug_dir=debug_dir)
-    cpp_ei_data = cpp_ei.parse(session)
+    cpp_ei_data = cpp_ei.parse(session, debug_dir=debug_dir)
 
     effective_date: str = t4127_data["effective_date"]
     published_at: str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

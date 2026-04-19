@@ -16,10 +16,12 @@ Source URLs:
 
 from __future__ import annotations
 
+import copy
 import logging
 import re
 import time
 from datetime import date
+from pathlib import Path as _Path
 
 import requests as _requests
 from bs4 import BeautifulSoup
@@ -77,6 +79,30 @@ def _normalize_header(text: str) -> str:
     # Collapse whitespace
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+def _clean_header_text(th) -> str:
+    """Extract clean column header text from a canada.ca ``<th>`` cell.
+
+    canada.ca embeds:
+      - ``<span class="wb-inv">`` for screen-reader-only text (often a
+        duplicated, colon-prefixed copy of the header that breaks substring
+        matching)
+      - ``<a class="small">definition...</a>`` helper links with FontAwesome
+        icons (``<span class="far fa-...">`` etc.)
+
+    Strip all of those, then return whitespace-collapsed text.
+    """
+    th_copy = copy.deepcopy(th)
+    to_remove = [
+        tag for tag in th_copy.find_all(["span", "a"])
+        if any(c in (tag.get("class") or []) for c in ("wb-inv", "small", "far", "fa", "fas"))
+        or any(c.startswith("fa-") for c in (tag.get("class") or []))
+    ]
+    for tag in to_remove:
+        tag.decompose()
+    text = th_copy.get_text(separator=" ", strip=True)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -146,10 +172,9 @@ def _extract_headers_and_data(table) -> tuple[list[str], list]:
         ths = row.find_all("th")
         tds = row.find_all("td")
         if ths and not tds:
-            # Pure header row — normalize header text
-            header_texts = [
-                _normalize_header(th.get_text(" ", strip=True)) for th in ths
-            ]
+            # Pure header row — use clean header extraction to strip canada.ca
+            # structural noise (wb-inv spans, definition links, FA icons).
+            header_texts = [_clean_header_text(th) for th in ths]
         elif tds:
             # Data row: include ALL cells in document order so that a
             # <th scope="row"> year cell at position 0 is preserved.
@@ -411,7 +436,7 @@ def _parse_ei_page(html: str) -> dict:
 # Public API
 # ---------------------------------------------------------------------------
 
-def parse(session=None) -> dict:
+def parse(session=None, debug_dir=None) -> dict:
     """
     Fetch and parse CRA CPP and EI rate data.
 
@@ -420,6 +445,15 @@ def parse(session=None) -> dict:
       - cpp2: {"rate": float, "yampe": int}
       - ei:   {"rate": float, "max_insurable_earnings": int}
       - source_urls: list[str]
+
+    Parameters
+    ----------
+    session:
+        Optional ``requests.Session``; a new one is created if *None*.
+    debug_dir:
+        Optional path to a directory where fetched HTML is written on failure
+        (``cpp.html``, ``cpp2.html``, ``ei.html``).  Mirrors the pattern used
+        by the T4127 parser.
     """
     if session is None:
         session = _requests.Session()
@@ -432,7 +466,18 @@ def parse(session=None) -> dict:
         )
 
     cpp_html = _fetch(session, CPP_SOURCE_URL)
-    cpp, cpp2 = _parse_cpp_page(cpp_html)
+    cpp2_html: str | None = None
+    ei_html: str | None = None
+
+    try:
+        cpp, cpp2 = _parse_cpp_page(cpp_html)
+    except Exception:
+        if debug_dir is not None:
+            debug_path = _Path(debug_dir) / "cpp.html"
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            debug_path.write_text(cpp_html, encoding="utf-8")
+            logger.info("Debug HTML written to %s", debug_path)
+        raise
 
     # If CPP2 was not on the CPP page, try the dedicated CPP2 page.
     if not cpp2:
@@ -441,16 +486,42 @@ def parse(session=None) -> dict:
             CPP2_SOURCE_URL,
         )
         cpp2_html = _fetch(session, CPP2_SOURCE_URL)
-        cpp2 = _parse_cpp2_page(cpp2_html)
+        try:
+            cpp2 = _parse_cpp2_page(cpp2_html)
+        except Exception:
+            if debug_dir is not None:
+                debug_path = _Path(debug_dir) / "cpp2.html"
+                debug_path.parent.mkdir(parents=True, exist_ok=True)
+                debug_path.write_text(cpp2_html, encoding="utf-8")
+                logger.info("Debug HTML written to %s", debug_path)
+            raise
 
     ei_html = _fetch(session, EI_SOURCE_URL)
-    ei = _parse_ei_page(ei_html)
+    try:
+        ei = _parse_ei_page(ei_html)
+    except Exception:
+        if debug_dir is not None:
+            debug_path = _Path(debug_dir) / "ei.html"
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            debug_path.write_text(ei_html, encoding="utf-8")
+            logger.info("Debug HTML written to %s", debug_path)
+        raise
 
     if not cpp:
+        if debug_dir is not None:
+            debug_path = _Path(debug_dir) / "cpp.html"
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            debug_path.write_text(cpp_html, encoding="utf-8")
+            logger.info("Debug HTML written to %s", debug_path)
         raise ValueError(
             f"Could not parse CPP data for year {_current_year()} from {CPP_SOURCE_URL}"
         )
     if not ei:
+        if debug_dir is not None:
+            debug_path = _Path(debug_dir) / "ei.html"
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            debug_path.write_text(ei_html, encoding="utf-8")
+            logger.info("Debug HTML written to %s", debug_path)
         raise ValueError(
             f"Could not parse EI data for year {_current_year()} from {EI_SOURCE_URL}"
         )

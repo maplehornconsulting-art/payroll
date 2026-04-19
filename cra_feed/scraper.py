@@ -85,10 +85,10 @@ def _canonical_checksum(data: dict) -> str:
 # Build feed
 # ---------------------------------------------------------------------------
 
-def build_feed() -> CRAFeed:
+def build_feed(debug_dir: Path | None = None) -> CRAFeed:
     session = _make_session()
 
-    t4127_data = t4127.parse(session)
+    t4127_data = t4127.parse(session, debug_dir=debug_dir)
     cpp_ei_data = cpp_ei.parse(session)
 
     effective_date: str = t4127_data["effective_date"]
@@ -202,8 +202,29 @@ def write_outputs(feed: CRAFeed) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="CRA payroll tax feed scraper",
+    )
+    parser.add_argument(
+        "--debug-html",
+        action="store_true",
+        help=(
+            "On parser failure, dump the fetched HTML to "
+            "dist/_debug/<parser>.html for post-mortem inspection."
+        ),
+    )
+    args = parser.parse_args()
+
+    debug_dir: Path | None = None
+    if args.debug_html:
+        debug_dir = REPO_ROOT / "dist" / "_debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        logger.info("Debug HTML will be written to %s on failure", debug_dir)
+
     print("CRA Feed Scraper starting …")
-    feed = build_feed()
+    feed = build_feed(debug_dir=debug_dir)
     write_outputs(feed)
     print(f"Done. effective_date={feed.effective_date}  checksum={feed.checksum_sha256[:16]}…")
 

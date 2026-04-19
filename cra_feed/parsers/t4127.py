@@ -248,34 +248,151 @@ def _parse_bracket_table(table) -> list[dict]:
     return brackets
 
 
-def _table_after_heading(soup: BeautifulSoup, *keywords: str):
+def _score_bracket_table(table) -> int:
     """
-    Find the first ``<table>`` that follows a heading containing all keywords.
+    Score a table on how tax-bracket-like it is.
 
-    Searches in order: caption, h1..h4.  Stops search at the next same-level
-    or higher-level heading.
+    Returns an integer 0–3:
+      +1  header row contains "rate" AND one of "threshold"/"income"/"bracket"
+      +1  at least 4 non-header data rows
+      +1  at least 4 data rows each having ≥2 numeric-looking cells
+          (a large number like an income threshold, or a percentage)
     """
-    for heading in soup.find_all(["h1", "h2", "h3", "h4", "caption"]):
-        heading_text = heading.get_text(" ", strip=True).lower()
-        if not all(kw.lower() in heading_text for kw in keywords):
-            continue
-        # Found heading – look for next table sibling
-        for sibling in heading.find_all_next():
-            if sibling.name == "table":
-                return sibling
-            # Stop at next heading of same or higher level
-            if sibling.name in ("h1", "h2", "h3", "h4") and sibling is not heading:
-                break
-    return None
+    rows = table.find_all("tr")
+    if not rows:
+        return 0
+
+    header_cells = rows[0].find_all(["th", "td"])
+    header_text = " ".join(c.get_text(" ", strip=True).lower() for c in header_cells)
+
+    score = 0
+    if "rate" in header_text and any(
+        w in header_text for w in ("threshold", "income", "bracket")
+    ):
+        score += 1
+
+    data_rows = [
+        row
+        for row in rows[1:]
+        if row.find_all(["td", "th"])
+        and not all(c.name == "th" for c in row.find_all(["td", "th"]))
+    ]
+    if len(data_rows) >= 4:
+        score += 1
+
+    def _cell_numeric(cell_text: str) -> bool:
+        return bool(
+            re.search(r"\d+\.?\d*\s*%", cell_text)
+            or re.search(r"[\d,]{4,}", cell_text)
+        )
+
+    numeric_rows = sum(
+        1
+        for row in data_rows
+        if sum(
+            1
+            for c in row.find_all(["td", "th"])
+            if _cell_numeric(c.get_text(strip=True))
+        )
+        >= 2
+    )
+    if numeric_rows >= 4:
+        score += 1
+
+    return score
+
+
+def _find_table_after_heading_or_fingerprint(
+    soup: BeautifulSoup,
+    heading_candidates: list,
+    fingerprint_fn,
+    anchor_tokens: list | None = None,
+) -> tuple:
+    """
+    Locate a tax bracket table using three strategies, in order:
+
+    Strategy A — Phrase match in headings:
+        Iterate ``heading_candidates`` (case-insensitive, whitespace-normalised).
+        For the first heading whose text *contains* the candidate phrase, take
+        the first ``<table>`` that follows it (stopping at the next ``<h2>``).
+
+    Strategy B — Fingerprint scoring:
+        Score every ``<table>`` with ``fingerprint_fn``; accept the table with
+        the highest score if it is ≥ 3.  Ties are broken in document order
+        (first occurrence wins).
+
+    Strategy C — Text anchor:
+        Search for any of ``anchor_tokens`` as literal text; walk up to the
+        nearest ``<table>`` ancestor.
+
+    Returns ``(table_tag, strategy_letter, heading_text_or_token)``
+    or ``(None, None, None)`` if all strategies fail.
+    """
+    # Strategy A
+    for candidate in heading_candidates:
+        candidate_l = candidate.lower()
+        for heading in soup.find_all(["h1", "h2", "h3", "h4", "caption"]):
+            heading_text = " ".join(heading.get_text().split())
+            if candidate_l in heading_text.lower():
+                for sibling in heading.find_all_next():
+                    if sibling.name == "table":
+                        return sibling, "A", heading_text
+                    if sibling.name in ("h1", "h2") and sibling is not heading:
+                        break
+
+    # Strategy B
+    best_table = None
+    best_score = 0
+    for table in soup.find_all("table"):
+        s = fingerprint_fn(table)
+        if s > best_score:
+            best_score = s
+            best_table = table
+
+    if best_score >= 3 and best_table is not None:
+        return best_table, "B", ""
+
+    # Strategy C
+    if anchor_tokens:
+        for token in anchor_tokens:
+            for text_node in soup.find_all(string=re.compile(re.escape(token))):
+                ancestor = text_node.find_parent("table")
+                if ancestor is not None:
+                    return ancestor, "C", token
+
+    return None, None, None
+
+
+# ---------------------------------------------------------------------------
+# Federal section constants
+# ---------------------------------------------------------------------------
+
+_FEDERAL_HEADING_CANDIDATES = [
+    "Federal income tax rates and income thresholds",
+    "Federal income tax brackets",
+    "Federal tax rates and income thresholds",
+    "Federal tax rates",
+    "Federal tax",
+]
+
+_FEDERAL_ANCHOR_TOKENS = ["$15,000", "5.05%"]
 
 
 # ---------------------------------------------------------------------------
 # Federal section
 # ---------------------------------------------------------------------------
 
-def _parse_federal(soup: BeautifulSoup) -> dict:
+def _parse_federal(soup: BeautifulSoup, source_url: str = "") -> dict:
     """
     Extract federal income tax brackets, BPAF min/max, and K1 rate.
+
+    Uses a three-strategy locator so minor changes to canada.ca HTML layout do
+    not cause hard failures:
+
+    * Strategy A – find a known heading phrase, take the first table after it.
+    * Strategy B – score all tables by how bracket-table-like they look; accept
+      the highest-scoring one (minimum score 3).
+    * Strategy C – anchor on a known dollar/rate token and walk up to a table.
 
     Returns::
 
@@ -285,29 +402,25 @@ def _parse_federal(soup: BeautifulSoup) -> dict:
             "k1_rate": float,
         }
     """
-    # --- Tax brackets ---
-    table = None
-    # Try several heading keyword combinations
-    for kwds in [
-        ("federal", "income tax"),
-        ("federal", "tax"),
-        ("federal", "net income"),
-        ("federal",),
-    ]:
-        table = _table_after_heading(soup, *kwds)
-        if table:
-            break
+    table, strategy, heading_text = _find_table_after_heading_or_fingerprint(
+        soup,
+        _FEDERAL_HEADING_CANDIDATES,
+        _score_bracket_table,
+        _FEDERAL_ANCHOR_TOKENS,
+    )
 
     if table is None:
-        # Last resort: find any table with a caption mentioning "federal"
-        for t in soup.find_all("table"):
-            cap = t.find("caption")
-            if cap and "federal" in cap.get_text().lower():
-                table = t
-                break
+        url_hint = f" (source URL: {source_url})" if source_url else ""
+        raise ValueError(
+            f"Could not locate federal tax bracket table in T4127 HTML{url_hint}. "
+            "Re-run with --debug-html to save the fetched HTML for inspection."
+        )
 
-    if table is None:
-        raise ValueError("Could not locate federal tax bracket table in T4127 HTML")
+    logger.info(
+        "Federal brackets located via strategy %s (heading=%r)",
+        strategy,
+        heading_text,
+    )
 
     brackets = _parse_bracket_table(table)
     if not brackets:
@@ -489,12 +602,35 @@ def _parse_one_province(soup: BeautifulSoup, prov_name: str, code: str) -> dict 
     section_soup = BeautifulSoup(f"<div>{section_html}</div>", "lxml")
 
     # --- Tax brackets ---
+    # Build province-specific heading candidates for Strategy A
+    prov_heading_candidates = [
+        f"{prov_name} provincial tax rates and income thresholds",
+        f"{prov_name} provincial tax rates",
+        f"{prov_name} provincial tax",
+        f"{prov_name} income tax rates",
+        f"{prov_name} tax rates",
+        "provincial tax rates and income thresholds",
+        "provincial tax rates",
+        "provincial income tax rates",
+        "tax rates",
+    ]
+    table, _strategy, _heading = _find_table_after_heading_or_fingerprint(
+        section_soup,
+        prov_heading_candidates,
+        _score_bracket_table,
+    )
+
     brackets: list[dict] = []
-    for table in section_soup.find_all("table"):
-        parsed = _parse_bracket_table(table)
-        if parsed:
-            brackets = parsed
-            break
+    if table is not None:
+        brackets = _parse_bracket_table(table)
+
+    # Fallback: scan all tables in the section (preserves original behaviour)
+    if not brackets:
+        for t in section_soup.find_all("table"):
+            parsed = _parse_bracket_table(t)
+            if parsed:
+                brackets = parsed
+                break
 
     if not brackets:
         return None
@@ -554,9 +690,18 @@ def _parse_province_bpa(section_soup, prov_name: str) -> float:
 # Public API
 # ---------------------------------------------------------------------------
 
-def parse(session=None) -> dict:
+def parse(session=None, debug_dir=None) -> dict:
     """
     Fetch and parse the CRA T4127 Payroll Deductions Formulas publication.
+
+    Parameters
+    ----------
+    session:
+        Optional ``requests.Session`` (a new one is created when not supplied).
+    debug_dir:
+        Optional directory path.  When provided and a parser exception occurs,
+        the raw fetched HTML is written to ``<debug_dir>/t4127.html`` so the
+        failure can be inspected without re-running the scraper.
 
     Returns a dict with keys:
       - bpaf: {"min": float, "max": float}
@@ -602,7 +747,16 @@ def parse(session=None) -> dict:
         )
 
     # 5. Federal data (required — raises if missing)
-    federal = _parse_federal(soup)
+    try:
+        federal = _parse_federal(soup, source_url=doc_url)
+    except Exception:
+        if debug_dir is not None:
+            from pathlib import Path as _Path
+            debug_path = _Path(debug_dir) / "t4127.html"
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            debug_path.write_text(doc_html, encoding="utf-8")
+            logger.info("Debug HTML written to %s", debug_path)
+        raise
 
     # 6. Provincial data (best-effort)
     provinces = _parse_provinces(soup)

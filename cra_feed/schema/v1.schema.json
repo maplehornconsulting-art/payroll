@@ -204,10 +204,17 @@
         }
       }
     },
+    "SurtaxBand": {
+      "type": "array",
+      "description": "A single surtax band: [threshold, cumulative_rate].",
+      "prefixItems": [{"type": "number"}, {"type": "number"}],
+      "minItems": 2,
+      "maxItems": 2
+    },
     "ProvinceData": {
       "type": "object",
       "description": "Provincial/territorial payroll tax parameters.",
-      "required": ["bpa", "tax_brackets"],
+      "required": ["bpa", "tax_brackets", "surtax"],
       "additionalProperties": false,
       "properties": {
         "bpa": {
@@ -221,6 +228,14 @@
         },
         "tax_brackets": {
           "$ref": "#/$defs/TaxBracketsArray"
+        },
+        "surtax": {
+          "type": "array",
+          "description": "Provincial surtax bands as [[threshold, cumulative_rate], ...]. Empty array when the province has no surtax.",
+          "items": {
+            "$ref": "#/$defs/SurtaxBand"
+          },
+          "default": []
         }
       }
     },

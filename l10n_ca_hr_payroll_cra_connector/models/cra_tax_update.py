@@ -8,6 +8,7 @@ from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
 from .cra_tax_update_line import _FEED_TO_RULE_PARAM, _SUPPORTED_PROVINCES
+from ._prov_blob import _build_prov_blob
 
 _logger = logging.getLogger(__name__) 
 
@@ -135,16 +136,9 @@ class CraTaxUpdate(models.Model):
             if bracket.get("up_to") is not None:
                 _add(f"federal.tax_brackets[{idx}].up_to", bracket["up_to"])
             _add(f"federal.tax_brackets[{idx}].rate", bracket.get("rate"))
-        for prov_code, prov_data in payload.get("provinces", {}).items():
-            if prov_code not in _SUPPORTED_PROVINCES:
-                continue
-            bpa = prov_data.get("bpa")
-            if bpa is not None:
-                _add(f"provinces.{prov_code}.bpa", bpa)
-            for idx, bracket in enumerate(prov_data.get("tax_brackets", [])):
-                if bracket.get("up_to") is not None:
-                    _add(f"provinces.{prov_code}.tax_brackets[{idx}].up_to", bracket["up_to"])
-                _add(f"provinces.{prov_code}.tax_brackets[{idx}].rate", bracket.get("rate"))
+        prov_blob = _build_prov_blob(payload.get("provinces", {}))
+        prov_json = json.dumps(prov_blob, indent=2, ensure_ascii=False, sort_keys=True)
+        _add("provinces", prov_json, vtype="json")
         return lines
 
     def action_review(self):
@@ -180,6 +174,14 @@ class CraTaxUpdate(models.Model):
             except ValueError:
                 _logger.warning("CRA Tax Update: xml id %s not found — skipping line %s.", line.rule_parameter_xml_id, line.path)
                 continue
+            if line.value_type == "json":
+                try:
+                    json.loads(line.new_value)
+                except (json.JSONDecodeError, ValueError) as exc:
+                    raise UserError(
+                        _("Invalid JSON for parameter %(path)s: %(error)s")
+                        % {"path": line.path, "error": exc}
+                    ) from exc
             existing_val = self.env["hr.rule.parameter.value"].search([("rule_parameter_id", "=", param.id), ("date_from", "=", effective_date)], limit=1)
             if existing_val:
                 existing_val.parameter_value = line.new_value

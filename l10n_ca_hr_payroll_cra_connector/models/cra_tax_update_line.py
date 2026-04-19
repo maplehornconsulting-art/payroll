@@ -43,21 +43,10 @@ _FEED_TO_RULE_PARAM = {
     "federal.tax_brackets[3].rate": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_fed_rate_4",
     # Top bracket has no up_to threshold; only the rate applies.
     "federal.tax_brackets[4].rate": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_fed_rate_5",
-    # Provincial tax config is stored as a single JSON blob parameter.
-    # Individual province BPA / bracket lines map to that one parameter.
-    # TODO: implement a JSON-merge strategy for the provincial config blob.
-    "provinces.ON.bpa": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_prov_tax_config",
-    "provinces.BC.bpa": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_prov_tax_config",
-    "provinces.AB.bpa": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_prov_tax_config",
-    "provinces.SK.bpa": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_prov_tax_config",
-    "provinces.MB.bpa": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_prov_tax_config",
-    "provinces.NB.bpa": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_prov_tax_config",
-    "provinces.NS.bpa": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_prov_tax_config",
-    "provinces.PE.bpa": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_prov_tax_config",
-    "provinces.NL.bpa": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_prov_tax_config",
-    "provinces.NT.bpa": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_prov_tax_config",
-    "provinces.YT.bpa": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_prov_tax_config",
-    "provinces.NU.bpa": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_prov_tax_config",
+    # Provincial tax config is stored as a single JSON blob covering all
+    # provinces (brackets + bpa + surtax).  The consolidated blob is written
+    # to one rule parameter in one atomic update.
+    "provinces": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_prov_tax_config",
 }
 
 # Province codes supported (no Quebec — matches base module scope)

@@ -1420,3 +1420,62 @@ class TestParseProvincesTable81Surtax:
 
     def test_ab_surtax_empty(self, provinces):
         assert provinces["AB"]["surtax"] == []
+
+
+# ---------------------------------------------------------------------------
+# ProvinceData surtax round-trip and validate_feed regression tests
+# ---------------------------------------------------------------------------
+
+class TestProvinceDataSurtaxRoundTrip:
+    """Regression tests: surtax is preserved through ProvinceData model_dump()."""
+
+    def test_on_surtax_preserved(self):
+        from cra_feed.schema import ProvinceData, TaxBracket
+        pdata = {
+            "bpa": 12989.0,
+            "tax_brackets": [{"up_to": 53891.0, "rate": 0.0505}, {"up_to": None, "rate": 0.1316}],
+            "surtax": [[5818.0, 0.20], [7446.0, 0.36]],
+        }
+        province = ProvinceData(
+            bpa=pdata["bpa"],
+            tax_brackets=[TaxBracket(**b) for b in pdata["tax_brackets"]],
+            surtax=pdata.get("surtax", []),
+            k1p=pdata.get("k1p"),
+        )
+        dumped = province.model_dump()
+        assert dumped["surtax"] == [[5818.0, 0.20], [7446.0, 0.36]]
+
+    def test_ab_surtax_empty_preserved(self):
+        from cra_feed.schema import ProvinceData, TaxBracket
+        pdata = {
+            "bpa": 22769.0,
+            "tax_brackets": [{"up_to": 61200.0, "rate": 0.08}, {"up_to": None, "rate": 0.15}],
+            "surtax": [],
+        }
+        province = ProvinceData(
+            bpa=pdata["bpa"],
+            tax_brackets=[TaxBracket(**b) for b in pdata["tax_brackets"]],
+            surtax=pdata.get("surtax", []),
+            k1p=pdata.get("k1p"),
+        )
+        dumped = province.model_dump()
+        assert dumped["surtax"] == []
+
+    def test_validate_feed_accepts_surtax(self):
+        """validate_feed must not raise when every province has a surtax field."""
+        import copy
+        from cra_feed.validate import validate_feed
+        from cra_feed.tests.test_validate import VALID_FEED
+        feed = copy.deepcopy(VALID_FEED)
+        validate_feed(feed)  # should not raise
+
+    def test_validate_feed_rejects_missing_surtax(self):
+        """validate_feed must raise ValidationError when surtax is absent."""
+        import copy
+        import jsonschema
+        from cra_feed.validate import validate_feed
+        from cra_feed.tests.test_validate import VALID_FEED
+        feed = copy.deepcopy(VALID_FEED)
+        del feed["provinces"]["ON"]["surtax"]
+        with pytest.raises(jsonschema.ValidationError):
+            validate_feed(feed)

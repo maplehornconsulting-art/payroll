@@ -33,7 +33,6 @@ PROVINCE_NAME_TO_CODE: dict[str, str] = {
     "manitoba": "MB",
     "new brunswick": "NB",
     "newfoundland and labrador": "NL",
-    "newfoundland": "NL",
     "nova scotia": "NS",
     "northwest territories": "NT",
     "nunavut": "NU",
@@ -786,6 +785,13 @@ def _parse_provinces(soup: BeautifulSoup) -> dict[str, dict]:
     Returns a dict keyed by 2-letter province code with values::
 
         {"bpa": float, "tax_brackets": [...]}
+
+    Raises
+    ------
+    ValueError
+        When a province section is found with tax brackets but the BPA cannot
+        be parsed.  A missing BPA must abort the scrape because defaulting to
+        $0 would over-withhold employee tax.
     """
     provinces: dict[str, dict] = {}
 
@@ -794,6 +800,11 @@ def _parse_provinces(soup: BeautifulSoup) -> dict[str, dict]:
             prov_data = _parse_one_province(soup, prov_name, code)
             if prov_data:
                 provinces[code] = prov_data
+        except ValueError:
+            # BPA parse failure (or other data error) → abort scrape.
+            # Re-raise so the caller receives a hard error rather than a
+            # silently-zeroed BPA in the output feed.
+            raise
         except Exception as exc:
             logger.warning("Could not parse province %s (%s): %s", code, prov_name, exc)
 
@@ -872,12 +883,22 @@ def _parse_province_bpa(section_soup, prov_name: str) -> float:
     Extract the provincial Basic Personal Amount from a province's HTML section.
 
     Looks for dollar amounts associated with keywords "basic personal" or "BPA".
-    Falls back to the largest dollar amount in the section.
+    Falls back to the largest plausible dollar amount in the section.
+
+    Raises
+    ------
+    ValueError
+        When no plausible BPA dollar amount can be found.  This is a hard
+        error — silently defaulting to $0 would over-withhold employee tax.
     """
     text = section_soup.get_text(" ")
 
-    # Prefer amounts explicitly labeled as BPA / basic personal amount
-    bpa_re = re.compile(r"(?:basic\s+personal\s+amount|bpa)[^$\d]{0,60}\$([\d,]+(?:\.\d+)?)", re.I)
+    # Strategy 1: amounts explicitly labeled as BPA / basic personal amount
+    # Handles: "basic personal amount: $12,000" or "BPA – $12,000"
+    bpa_re = re.compile(
+        r"(?:basic\s+personal(?:\s+\w+){0,2}|bpa)[^$\d]{0,60}\$([\d,]+(?:\.\d+)?)",
+        re.I,
+    )
     m = bpa_re.search(text)
     if m:
         try:
@@ -885,8 +906,11 @@ def _parse_province_bpa(section_soup, prov_name: str) -> float:
         except ValueError:
             pass
 
-    # Alternative: "$X,XXX" near "basic personal" in reverse order
-    bpa_rev_re = re.compile(r"\$([\d,]+(?:\.\d+)?)[^$\d]{0,60}(?:basic\s+personal\s+amount|bpa)", re.I)
+    # Strategy 2: "$X,XXX" near "basic personal" in reverse order
+    bpa_rev_re = re.compile(
+        r"\$([\d,]+(?:\.\d+)?)[^$\d]{0,60}(?:basic\s+personal(?:\s+\w+){0,2}|bpa)",
+        re.I,
+    )
     m = bpa_rev_re.search(text)
     if m:
         try:
@@ -894,7 +918,21 @@ def _parse_province_bpa(section_soup, prov_name: str) -> float:
         except ValueError:
             pass
 
-    # Fall back: largest plausible dollar amount in the section
+    # Strategy 3: search list items and paragraphs for BPA keywords + amount
+    for tag in section_soup.find_all(["li", "p"]):
+        tag_text = tag.get_text(" ", strip=True)
+        tag_lower = tag_text.lower()
+        if "basic personal" not in tag_lower and "bpa" not in tag_lower:
+            continue
+        for amt_m in re.finditer(r"\$([\d,]+(?:\.\d+)?)", tag_text):
+            try:
+                v = float(amt_m.group(1).replace(",", ""))
+                if 5_000 < v < 50_000:
+                    return v
+            except ValueError:
+                pass
+
+    # Strategy 4: largest plausible dollar amount in the section
     amounts = re.findall(r"\$([\d,]+(?:\.\d+)?)", text)
     plausible = []
     for a in amounts:
@@ -908,8 +946,11 @@ def _parse_province_bpa(section_soup, prov_name: str) -> float:
     if plausible:
         return max(plausible)
 
-    logger.warning("Could not parse BPA for province %s; defaulting to 0.0", prov_name)
-    return 0.0
+    raise ValueError(
+        f"Could not parse BPA for province {prov_name!r}. "
+        f"No plausible BPA dollar amount (between $5,000 and $50,000) found. "
+        f"Section text excerpt: {text[:300]!r}"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -42,7 +42,15 @@ jobs:
         run: pytest cra_feed/tests/ -v
 
       - name: Run scraper
-        run: python -m cra_feed.scraper
+        run: python -m cra_feed.scraper --debug-html
+
+      - name: Upload debug HTML on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t4127-debug-html
+          path: dist/_debug/
+          if-no-files-found: warn
 
       - name: Validate generated feed
         run: python -m cra_feed.validate cra_feed/output/v1/ca/latest.json

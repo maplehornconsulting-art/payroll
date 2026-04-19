@@ -104,15 +104,22 @@ def _find_document_url(edition_url: str, edition_html: str) -> str:
     """
     From an edition landing page, find the URL of the actual formulas document.
 
-    If the edition page already contains tax data (headings or tables with
-    income/bracket text), it IS the document.  Otherwise follow the first
-    'computer-programs' or 'formulas' link.
-    """
-    text_l = edition_html.lower()
-    if any(kw in text_l for kw in ("taxable income", "net income", "tax bracket")):
-        return edition_url
+    If the edition page already contains bracket-like tables, it IS the
+    document.  Otherwise follow the first 'computer-programs' or 'formulas'
+    link to the deeper sub-page that holds the actual tax data.
 
+    Note: the old heuristic of checking for text keywords like "taxable income"
+    was too broad — TOC pages often include those words in link text, causing a
+    false early-return.  We now require an actual scoring-positive table.
+    """
     soup = BeautifulSoup(edition_html, "lxml")
+
+    # If the page already has a bracket-like table, it is itself the document
+    for table in soup.find_all("table"):
+        if _score_bracket_table(table) >= 2:
+            return edition_url
+
+    # No bracket tables found — look for a linked sub-page
     for a in soup.find_all("a", href=True):
         href = a["href"]
         href_l = href.lower()
@@ -309,12 +316,19 @@ def _find_table_after_heading_or_fingerprint(
     anchor_tokens: list | None = None,
 ) -> tuple:
     """
-    Locate a tax bracket table using three strategies, in order:
+    Locate a tax bracket table using four strategies, in order:
 
-    Strategy A — Phrase match in headings:
+    Strategy A — Phrase match in block headings (h1–h4):
         Iterate ``heading_candidates`` (case-insensitive, whitespace-normalised).
         For the first heading whose text *contains* the candidate phrase, take
         the first ``<table>`` that follows it (stopping at the next ``<h2>``).
+
+    Strategy D — Table caption match:
+        For each ``<table>``, check whether its ``<caption>`` contains any of
+        the candidate phrases.  Return the table directly (not the *next* table
+        after the caption — that would be wrong).  Tried before B/C so that an
+        explicit CRA caption like "Table 4.1 Federal income tax rates and income
+        thresholds" is preferred over fingerprint guessing.
 
     Strategy B — Fingerprint scoring:
         Score every ``<table>`` with ``fingerprint_fn``; accept the table with
@@ -328,10 +342,10 @@ def _find_table_after_heading_or_fingerprint(
     Returns ``(table_tag, strategy_letter, heading_text_or_token)``
     or ``(None, None, None)`` if all strategies fail.
     """
-    # Strategy A
+    # Strategy A — heading h1–h4 immediately preceding the table
     for candidate in heading_candidates:
         candidate_l = candidate.lower()
-        for heading in soup.find_all(["h1", "h2", "h3", "h4", "caption"]):
+        for heading in soup.find_all(["h1", "h2", "h3", "h4"]):
             heading_text = " ".join(heading.get_text().split())
             if candidate_l in heading_text.lower():
                 for sibling in heading.find_all_next():
@@ -340,7 +354,17 @@ def _find_table_after_heading_or_fingerprint(
                     if sibling.name in ("h1", "h2") and sibling is not heading:
                         break
 
-    # Strategy B
+    # Strategy D — table with a caption that contains a known phrase
+    for candidate in heading_candidates:
+        candidate_l = candidate.lower()
+        for table in soup.find_all("table"):
+            cap = table.find("caption")
+            if cap:
+                cap_text = " ".join(cap.get_text().split())
+                if candidate_l in cap_text.lower():
+                    return table, "D", cap_text
+
+    # Strategy B — fingerprint scoring
     best_table = None
     best_score = 0
     for table in soup.find_all("table"):
@@ -352,7 +376,7 @@ def _find_table_after_heading_or_fingerprint(
     if best_score >= 3 and best_table is not None:
         return best_table, "B", ""
 
-    # Strategy C
+    # Strategy C — text anchor
     if anchor_tokens:
         for token in anchor_tokens:
             for text_node in soup.find_all(string=re.compile(re.escape(token))):
@@ -725,15 +749,28 @@ def parse(session=None, debug_dir=None) -> dict:
     index_html = _fetch(session, T4127_INDEX_URL)
     edition_url = _find_edition_url(index_html)
 
-    # 2. Fetch edition page — federal/provincial bracket tables live here
+    # 2. Fetch edition page (may be a TOC/landing page that links to a sub-page)
     edition_html = _fetch(session, edition_url)
     soup_edition = BeautifulSoup(edition_html, "lxml")
 
-    # 3. Discover the document URL for provenance (may be same as edition page)
+    # 3. Discover the actual formulas document URL.
+    #    When t4127-jan.html is a TOC, doc_url will point to the deeper
+    #    computer-programs sub-page that contains the real bracket tables.
     doc_url = _find_document_url(edition_url, edition_html)
 
-    # 4. Effective date — parse from the edition page
-    effective_date = _parse_effective_date(soup_edition)
+    # 4. If the formulas live on a sub-page, fetch it now so the parsers
+    #    receive the correct HTML.  Cache the edition soup for date extraction.
+    if doc_url != edition_url:
+        doc_html = _fetch(session, doc_url)
+        soup_doc = BeautifulSoup(doc_html, "lxml")
+    else:
+        doc_html = edition_html
+        soup_doc = soup_edition
+
+    # 5. Effective date — try the formulas doc first, then the edition page
+    effective_date = _parse_effective_date(soup_doc)
+    if effective_date is None:
+        effective_date = _parse_effective_date(soup_edition)
     if effective_date is None:
         effective_date = date.today().isoformat()
         logger.warning(
@@ -741,20 +778,20 @@ def parse(session=None, debug_dir=None) -> dict:
             effective_date,
         )
 
-    # 5. Federal data (required — raises if missing)
+    # 6. Federal data (required — raises if missing)
     try:
-        federal = _parse_federal(soup_edition, source_url=edition_url)
+        federal = _parse_federal(soup_doc, source_url=doc_url)
     except Exception:
         if debug_dir is not None:
             from pathlib import Path as _Path
             debug_path = _Path(debug_dir) / "t4127.html"
             debug_path.parent.mkdir(parents=True, exist_ok=True)
-            debug_path.write_text(edition_html, encoding="utf-8")
+            debug_path.write_text(doc_html, encoding="utf-8")
             logger.info("Debug HTML written to %s", debug_path)
         raise
 
-    # 6. Provincial data (best-effort)
-    provinces = _parse_provinces(soup_edition)
+    # 7. Provincial data (best-effort)
+    provinces = _parse_provinces(soup_doc)
     if not provinces:
         logger.warning(
             "T4127 parser returned no provincial data — "

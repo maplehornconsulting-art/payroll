@@ -778,6 +778,213 @@ def _parse_bpaf(soup: BeautifulSoup, k1_rate: float) -> dict:
 # Provincial sections
 # ---------------------------------------------------------------------------
 
+def _parse_table_81(soup: BeautifulSoup) -> dict[str, list[dict]]:
+    """
+    Parse Table 8.1 from the 2026+ T4127 format.
+
+    Table 8.1 consolidates all provincial/territorial rates (V), income
+    thresholds (A), and constants (K, KP) into a single compact grid.
+
+    Layout::
+
+        row: ['Federal', 'A', '0', '58,523', ...]   # Federal thresholds – skip
+        row: ['R', '0.1400', '0.2050', ...]          # Federal rates – skip
+        row: ['K', '0', '3,804', ...]                # Federal constants – skip
+        row: ['AB', 'A', '0', '61,200', '154,259', ...] # AB thresholds
+        row: ['V', '0.0800', '0.1000', ...]          # AB rates
+        row: ['KP', '0', '1,224', ...]               # AB constants – skip
+        ...
+
+    Returns
+    -------
+    dict[str, list[dict]]
+        ``{prov_code: [{"up_to": float | None, "rate": float}, ...]}``
+        Only provinces with at least 2 brackets are included.
+        Returns an empty dict if Table 8.1 is not found in the HTML.
+    """
+    known_codes = set(PROVINCE_NAME_TO_CODE.values())
+
+    # Locate Table 8.1
+    table_81 = None
+    for table in soup.find_all("table"):
+        cap = table.find("caption")
+        if cap and "Table 8.1" in cap.get_text(" ", strip=True):
+            table_81 = table
+            break
+
+    if table_81 is None:
+        return {}
+
+    prov_thresholds: dict[str, list[float]] = {}
+    prov_rates: dict[str, list[float]] = {}
+    current_prov: str | None = None  # None while in the Federal block
+
+    for row in table_81.find_all("tr"):
+        cells = row.find_all(["td", "th"])
+        if not cells:
+            continue
+
+        cell_texts = [c.get_text(" ", strip=True) for c in cells]
+        first = cell_texts[0].strip()
+        second = cell_texts[1].strip() if len(cell_texts) >= 2 else ""
+
+        # Threshold row: second cell is "A"
+        if second == "A":
+            if first == "Federal":
+                current_prov = None  # skip Federal block
+            elif first in known_codes:
+                current_prov = first
+                thresholds: list[float] = []
+                for t in cell_texts[2:]:
+                    t_s = t.strip()
+                    if not t_s:
+                        continue
+                    try:
+                        thresholds.append(float(t_s.replace(",", "").replace("$", "")))
+                    except ValueError:
+                        continue
+                prov_thresholds[current_prov] = thresholds
+            continue
+
+        # Constants rows – not needed
+        if first in ("K", "KP"):
+            continue
+
+        # Rate row: "V" for provinces, "R" for Federal
+        if first in ("V", "R"):
+            if first == "V" and current_prov is not None:
+                rates: list[float] = []
+                for t in cell_texts[1:]:
+                    t_s = t.strip()
+                    if not t_s:
+                        continue
+                    try:
+                        rates.append(float(t_s.replace(",", "").replace("%", "")))
+                    except ValueError:
+                        continue
+                prov_rates[current_prov] = rates
+            continue
+
+    # Build bracket lists from accumulated thresholds and rates
+    result: dict[str, list[dict]] = {}
+    for code in prov_thresholds:
+        if code not in prov_rates:
+            continue
+        thresholds = prov_thresholds[code]
+        rates = prov_rates[code]
+        n = len(rates)
+        if n < 1:
+            continue
+
+        brackets: list[dict] = []
+        for i, rate in enumerate(rates):
+            if rate > 1:  # percentage notation (e.g. 8.0 → 0.08)
+                rate = rate / 100.0
+            up_to: float | None = thresholds[i + 1] if i + 1 < len(thresholds) else None
+            brackets.append({"up_to": up_to, "rate": rate})
+
+        if len(brackets) >= 2:
+            result[code] = brackets
+
+    return result
+
+
+def _parse_claim_code_bpas(soup: BeautifulSoup) -> dict[str, dict]:
+    """
+    Parse BPA (and optional K1P) for all provinces from claim codes tables.
+
+    Iterates tables whose captions match ``"Table 8.NN <province> claim codes"``
+    (2026+ format) and extracts claim code 1's "Total claim amount ($) to" value
+    as the BPA and, when present, "Option 1, K1P ($)" as K1P.
+
+    Returns
+    -------
+    dict[str, dict]
+        ``{prov_code: {"bpa": float}}`` or
+        ``{prov_code: {"bpa": float, "k1p": float}}`` per province.
+    """
+    prov_lower_to_code = {k.lower(): v for k, v in PROVINCE_NAME_TO_CODE.items()}
+    caption_re = re.compile(r"Table\s+8\.\d+\s+(.+?)\s+claim\s+codes", re.I)
+
+    result: dict[str, dict] = {}
+
+    for table in soup.find_all("table"):
+        cap = table.find("caption")
+        if not cap:
+            continue
+        cap_text = cap.get_text(" ", strip=True)
+        m = caption_re.search(cap_text)
+        if not m:
+            continue
+
+        prov_name_raw = m.group(1).strip()
+        # Strip trailing parenthetical, e.g. "(Using maximum BPAMB)"
+        prov_name_clean = re.sub(r"\s*\(.*?\)\s*$", "", prov_name_raw, flags=re.I).strip()
+
+        if prov_name_clean.lower() in ("federal", ""):
+            continue
+
+        code = prov_lower_to_code.get(prov_name_clean.lower())
+        if code is None:
+            logger.debug(
+                "Claim codes table with unknown province name: %r", prov_name_raw
+            )
+            continue
+
+        # Locate headers and find claim code 1 row (reuse Strategy 5 logic)
+        rows = table.find_all("tr")
+        if not rows:
+            continue
+
+        header_cells = rows[0].find_all(["th", "td"])
+        headers = [c.get_text(" ", strip=True).lower() for c in header_cells]
+
+        claim_code_col = next(
+            (i for i, h in enumerate(headers) if "claim code" in h), None
+        )
+        total_to_col = next(
+            (
+                i
+                for i, h in enumerate(headers)
+                if "total claim amount" in h and "to" in h.split()
+            ),
+            None,
+        )
+        k1p_col = next((i for i, h in enumerate(headers) if "k1p" in h), None)
+
+        if claim_code_col is None or total_to_col is None:
+            continue
+
+        for row in rows[1:]:
+            cells = row.find_all(["th", "td"])
+            if claim_code_col >= len(cells):
+                continue
+            if cells[claim_code_col].get_text(strip=True) != "1":
+                continue
+            if total_to_col >= len(cells):
+                continue
+            bpa_text = cells[total_to_col].get_text(strip=True).replace(",", "")
+            try:
+                bpa_val = float(bpa_text)
+            except ValueError:
+                continue
+            if not (5_000 < bpa_val < 50_000):
+                continue
+            bpa_info: dict = {"bpa": bpa_val}
+            if k1p_col is not None and k1p_col < len(cells):
+                k1p_text = cells[k1p_col].get_text(strip=True).replace(",", "")
+                try:
+                    k1p_val = float(k1p_text)
+                    if k1p_val >= 0:
+                        bpa_info["k1p"] = k1p_val
+                except ValueError:
+                    pass
+            result[code] = bpa_info
+            break
+
+    return result
+
+
 def _parse_provinces(soup: BeautifulSoup) -> dict[str, dict]:
     """
     Parse all in-scope provincial/territorial tax data from the T4127 HTML.
@@ -795,6 +1002,25 @@ def _parse_provinces(soup: BeautifulSoup) -> dict[str, dict]:
     """
     provinces: dict[str, dict] = {}
 
+    # 2026+ format: Table 8.1 consolidates all provincial brackets.
+    brackets_by_code = _parse_table_81(soup)
+    if brackets_by_code:
+        bpas_by_code = _parse_claim_code_bpas(soup)
+        for code, brackets in brackets_by_code.items():
+            if code not in bpas_by_code:
+                raise ValueError(
+                    f"Province {code!r} has tax brackets from Table 8.1 but no BPA "
+                    f"found in claim codes tables. A missing BPA must abort the scrape "
+                    f"because defaulting to $0 would over-withhold employee tax."
+                )
+            bpa_info = bpas_by_code[code]
+            prov_result: dict = {"bpa": bpa_info["bpa"], "tax_brackets": brackets}
+            if bpa_info.get("k1p") is not None:
+                prov_result["k1p"] = bpa_info["k1p"]
+            provinces[code] = prov_result
+        return provinces
+
+    # Fallback: legacy per-province <h3>/<h4> section format (pre-2026).
     for prov_name, code in PROVINCE_NAME_TO_CODE.items():
         try:
             prov_data = _parse_one_province(soup, prov_name, code)

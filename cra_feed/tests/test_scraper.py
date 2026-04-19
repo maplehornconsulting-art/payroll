@@ -1240,27 +1240,29 @@ class TestParseProvincesTable81:
 class TestParseTable82Surtaxes:
     """Unit tests for _parse_table_82_surtaxes() using a synthetic HTML fixture."""
 
+    # Mirrors the real 2026 Table 8.2 layout: full-width province rows (11 cells)
+    # with province code in cell 0 and BPA/Index rate in cells 1-2, plus two
+    # short continuation rows after ON (4 cells: threshold, rate, '', '').
     _HTML = """
     <html><body>
     <table>
       <caption>Table 8.2 Other rates and amounts for 2026</caption>
       <thead>
         <tr>
-          <th>Province</th>
-          <th>Surtax threshold 1 ($)</th>
-          <th>Surtax rate 1 (V1)</th>
-          <th>Surtax threshold 2 ($)</th>
-          <th>Surtax rate 2 (V2)</th>
+          <th></th><th>Basic amount</th><th>Index rate</th><th>LCP rate</th>
+          <th>LCP amount</th><th>CEA</th><th>S2</th><th>T4 to V1</th>
+          <th>V1 rate</th><th>Abatement</th><th>Surtax</th>
         </tr>
       </thead>
       <tbody>
-        <tr>
-          <td>ON</td>
-          <td>$5,818</td>
-          <td>20%</td>
-          <td>$7,446</td>
-          <td>36%</td>
-        </tr>
+        <tr><td>AB</td><td>22,769</td><td>0.020</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td>BC</td><td>13,216</td><td>0.022</td><td></td><td></td><td>575</td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td>ON</td><td>12,989</td><td>0.019</td><td></td><td></td><td>300</td><td>0</td><td>0</td><td></td><td></td><td></td></tr>
+        <tr><td>5,818</td><td>0.20</td><td></td><td></td></tr>
+        <tr><td>7,446</td><td>0.36</td><td></td><td></td></tr>
+        <tr><td>QC</td><td>&#8211;</td><td>&#8211;</td><td></td><td></td><td></td><td></td><td></td><td></td><td>0.165</td><td></td></tr>
+        <!-- &#8211; is the en dash (–) used on the real canada.ca page to mean "not applicable" -->
+        <tr><td>Outside Canada</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td>0.480</td></tr>
       </tbody>
     </table>
     </body></html>
@@ -1313,7 +1315,7 @@ class TestParseTable82Surtaxes:
         assert _parse_table_82_surtaxes(soup) == {}
 
     def test_decimal_rate_format(self):
-        """Parser must also accept decimal rate format (0.20 instead of 20%)."""
+        """Parser must also accept decimal rate format (0.20 instead of 20%) in continuation rows."""
         from bs4 import BeautifulSoup
         from cra_feed.parsers.t4127 import _parse_table_82_surtaxes
         html = """
@@ -1321,7 +1323,9 @@ class TestParseTable82Surtaxes:
         <table>
           <caption>Table 8.2 Other rates and amounts for 2026</caption>
           <tbody>
-            <tr><td>ON</td><td>$5,818</td><td>0.20</td><td>$7,446</td><td>0.36</td></tr>
+            <tr><td>ON</td><td>12,989</td><td>0.019</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td>5,818</td><td>0.20</td><td></td><td></td></tr>
+            <tr><td>7,446</td><td>0.36</td><td></td><td></td></tr>
           </tbody>
         </table>
         </body></html>
@@ -1350,12 +1354,15 @@ class TestParseProvincesTable81Surtax:
         <tr><td>AB</td><td>A</td><td>0</td><td>61,200</td><td>154,259</td><td>185,111</td><td>246,813</td></tr>
         <tr><td>V</td><td>0.0800</td><td>0.1000</td><td>0.1200</td><td>0.1300</td><td>0.1400</td><td></td></tr>
         <tr><td>KP</td><td>0</td><td>1,224</td><td>4,309</td><td>6,160</td><td>8,628</td><td></td></tr>
+        <tr><td>BC</td><td>A</td><td>0</td><td>50,363</td><td>100,728</td><td>0</td><td></td></tr>
+        <tr><td>V</td><td>0.0506</td><td>0.0770</td><td>0.1050</td><td>0.2050</td><td></td><td></td></tr>
+        <tr><td>KP</td><td>0</td><td>1,214</td><td>4,121</td><td>0</td><td></td><td></td></tr>
         <tr><td>ON</td><td>A</td><td>0</td><td>53,891</td><td>107,785</td><td>150,000</td><td>220,000</td></tr>
         <tr><td>V</td><td>0.0505</td><td>0.0915</td><td>0.1116</td><td>0.1216</td><td>0.1316</td><td></td></tr>
         <tr><td>KP</td><td>0</td><td>2,158</td><td>4,831</td><td>7,341</td><td>9,541</td><td></td></tr>
       </tbody>
     </table>
-    <!-- Claim codes for AB and ON -->
+    <!-- Claim codes for AB, BC and ON -->
     <table>
       <caption>Table 8.10 Alberta claim codes</caption>
       <thead>
@@ -1369,6 +1376,21 @@ class TestParseProvincesTable81Surtax:
       <tbody>
         <tr><td>0</td><td>No claim amount</td><td>No claim amount</td><td>0.00</td></tr>
         <tr><td>1</td><td>0.00</td><td>21,003.00</td><td>21,003.00</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <caption>Table 8.11 British Columbia claim codes</caption>
+      <thead>
+        <tr>
+          <th>Claim code</th>
+          <th>Total claim amount ($) from</th>
+          <th>Total claim amount ($) to</th>
+          <th>Option 1, TCP ($)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>0</td><td>No claim amount</td><td>No claim amount</td><td>0.00</td></tr>
+        <tr><td>1</td><td>0.00</td><td>13,216.00</td><td>13,216.00</td></tr>
       </tbody>
     </table>
     <table>
@@ -1386,17 +1408,15 @@ class TestParseProvincesTable81Surtax:
         <tr><td>1</td><td>0.00</td><td>12,989.00</td><td>12,989.00</td></tr>
       </tbody>
     </table>
-    <!-- Table 8.2: ON surtax -->
+    <!-- Table 8.2: real 2026 layout with full-width province rows + ON continuation rows -->
     <table>
       <caption>Table 8.2 Other rates and amounts for 2026</caption>
       <tbody>
-        <tr>
-          <td>ON</td>
-          <td>$5,818</td>
-          <td>20%</td>
-          <td>$7,446</td>
-          <td>36%</td>
-        </tr>
+        <tr><td>AB</td><td>22,769</td><td>0.020</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td>BC</td><td>13,216</td><td>0.022</td><td></td><td></td><td>575</td><td></td><td></td><td></td><td></td><td></td></tr>
+        <tr><td>ON</td><td>12,989</td><td>0.019</td><td></td><td></td><td>300</td><td>0</td><td>0</td><td></td><td></td><td></td></tr>
+        <tr><td>5,818</td><td>0.20</td><td></td><td></td></tr>
+        <tr><td>7,446</td><td>0.36</td><td></td><td></td></tr>
       </tbody>
     </table>
     </body></html>
@@ -1420,6 +1440,12 @@ class TestParseProvincesTable81Surtax:
 
     def test_ab_surtax_empty(self, provinces):
         assert provinces["AB"]["surtax"] == []
+
+    def test_bc_surtax_present(self, provinces):
+        assert "surtax" in provinces["BC"]
+
+    def test_bc_surtax_empty(self, provinces):
+        assert provinces["BC"]["surtax"] == []
 
 
 # ---------------------------------------------------------------------------

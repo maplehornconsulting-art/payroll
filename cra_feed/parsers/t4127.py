@@ -989,45 +989,30 @@ def _parse_table_82_surtaxes(soup: BeautifulSoup) -> dict[str, list[list[float]]
     """
     Parse Table 8.2 (Other rates and amounts) for provincial surtax bands.
 
+    Surtax bands appear only as short continuation rows immediately after a
+    province row. A continuation row has exactly 2 non-empty cells where the
+    first is a dollar threshold (> 100) and the second is a decimal rate in
+    (0, 1]. Province rows themselves are NEVER treated as surtax data — even
+    though their Basic amount + Index rate cells superficially match the
+    [threshold, rate] shape.
+
     Returns
     -------
     dict[str, list[list[float]]]
-        ``{prov_code: [[threshold, rate], ...]}`` where *threshold* is the
-        dollar amount above which the surtax applies and *rate* is the
-        cumulative surtax rate normalised to [0, 1].  Example for ON 2026::
-
-            {"ON": [[5818.0, 0.20], [7446.0, 0.36]]}
-
-        Returns ``{}`` if Table 8.2 is absent or no surtax rows are found.
+        ``{prov_code: [[threshold, rate], ...]}`` — only provinces with at
+        least one continuation row are included. Empty dict otherwise.
     """
     known_codes = set(PROVINCE_NAME_TO_CODE.values())
 
-    # Locate Table 8.2
+    # Locate Table 8.2 by caption.
     table_82 = None
     for table in soup.find_all("table"):
         cap = table.find("caption")
         if cap and "Table 8.2" in cap.get_text(" ", strip=True):
             table_82 = table
             break
-
     if table_82 is None:
         return {}
-
-    def _parse_cell_value(s: str) -> tuple[float, bool]:
-        """Return (float_value, is_rate). Rate is normalised to [0, 1]."""
-        s = s.strip()
-        is_pct = s.endswith("%")
-        cleaned = s.replace(",", "").replace("$", "").rstrip("%").strip()
-        if not cleaned:
-            raise ValueError("empty cell")
-        v = float(cleaned)
-        if is_pct:
-            return v / 100.0, True
-        if 0 < v <= 1.0:
-            return v, True
-        if v > 1.0:
-            return v, False
-        raise ValueError(f"Cannot classify cell value: {s!r}")
 
     result: dict[str, list[list[float]]] = {}
     current_prov: str | None = None
@@ -1036,44 +1021,60 @@ def _parse_table_82_surtaxes(soup: BeautifulSoup) -> dict[str, list[list[float]]
         cells = row.find_all(["td", "th"])
         if not cells:
             continue
-
         cell_texts = [c.get_text(" ", strip=True) for c in cells]
         first = cell_texts[0].strip()
 
+        # Province row: starts a new context. NEVER emit surtax from this row
+        # because its 2nd/3rd cells are BPA / Index rate, not surtax bands.
         if first in known_codes:
             current_prov = first
-            if current_prov not in result:
-                result[current_prov] = []
-            data_cells = [t for t in cell_texts[1:] if t.strip()]
-        elif current_prov is not None and first.upper() in ("V1", "V2", ""):
-            data_cells = [t for t in (cell_texts[1:] if first else cell_texts) if t.strip()]
-        else:
+            continue
+
+        # Federal / QC / "Outside Canada" / unknown header row → reset context
+        if first in ("Federal", "QC", "Outside Canada", ""):
+            # An empty first cell is permitted ONLY if the row is a 2-cell
+            # continuation row (handled below). Otherwise reset.
+            # Note: a header row with first=="" and many non-empty cells will
+            # also be reset here, which is the correct behaviour.
+            non_empty = [t for t in cell_texts if t.strip()]
+            if first != "" or len(non_empty) != 2:
+                current_prov = None
+                continue
+            # Fall through: empty-first-cell row with exactly 2 non-empty cells
+            # is treated as a continuation row by the logic below.
+
+        if current_prov is None:
+            continue
+
+        # Continuation row candidate: collect non-empty cells and try to
+        # parse exactly two values: a dollar threshold + a decimal rate.
+        non_empty = [t for t in cell_texts if t.strip()]
+        if len(non_empty) != 2:
+            # Not a surtax continuation row.
+            # If the first cell looks like a province code we already handled
+            # it above; anything else with ≠2 non-empty cells means we are
+            # done with the previous province's surtax block.
             current_prov = None
             continue
 
-        # Extract [threshold, rate] pairs from data_cells.
-        # Each pair consists of one threshold (large dollar amount) and one rate
-        # (percentage or decimal ≤ 1).  Both orderings are handled.
-        i = 0
-        while i + 1 < len(data_cells):
-            a, b = data_cells[i], data_cells[i + 1]
-            try:
-                va, a_is_rate = _parse_cell_value(a)
-                vb, b_is_rate = _parse_cell_value(b)
-            except ValueError:
-                i += 1
-                continue
+        try:
+            v1 = float(non_empty[0].replace(",", "").replace("$", ""))
+            v2_raw = non_empty[1].strip()
+            v2_is_pct = v2_raw.endswith("%")
+            v2 = float(v2_raw.replace(",", "").replace("$", "").rstrip("%"))
+            if v2_is_pct:
+                v2 /= 100.0
+        except ValueError:
+            current_prov = None
+            continue
 
-            if not a_is_rate and b_is_rate:
-                result[current_prov].append([va, vb])
-                i += 2
-            elif a_is_rate and not b_is_rate:
-                result[current_prov].append([vb, va])
-                i += 2
-            else:
-                i += 1
+        # Validate shapes: threshold must be > 100, rate must be in (0, 1].
+        if v1 > 100 and 0 < v2 <= 1:
+            result.setdefault(current_prov, []).append([v1, v2])
+        else:
+            current_prov = None
 
-    return {k: v for k, v in result.items() if v}
+    return result
 
 
 def _parse_provinces(soup: BeautifulSoup) -> dict[str, dict]:

@@ -38,6 +38,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r cra_feed/requirements.txt
 
+      - name: Run tests
+        run: pytest cra_feed/tests/ -v
+
       - name: Run scraper
         run: python -m cra_feed.scraper
 

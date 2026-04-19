@@ -39,6 +39,29 @@ https://maplehornconsulting-art.github.io/payroll/v1/ca/index.json
 
 ---
 
+## Live data sources
+
+The scraper fetches the following official CRA pages on every run:
+
+| Data | Source URL |
+|---|---|
+| Federal income tax brackets, BPAF, K1 rate | `https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas.html` (index) → latest T4127-JAN/JUL HTML edition |
+| CPP contribution rates, YMPE, YAMPE | `https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/payroll/payroll-deductions-contributions/canada-pension-plan-cpp/cpp-contribution-rates-maximums-exemptions.html` |
+| EI premium rates and maximum insurable earnings | `https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/payroll/payroll-deductions-contributions/employment-insurance-ei/ei-premium-rates-maximums.html` |
+| Provincial/territorial brackets and BPAs | Same T4127 HTML publication (each province has its own chapter) |
+
+---
+
+## Data quality
+
+Values are scraped automatically from official canada.ca pages each day.  A few important caveats:
+
+- The feed may be up to **24 hours behind** official CRA publication.  CRA typically publishes updates in advance of January 1 and July 1 effective dates; the feed will reflect those updates on the next scheduled workflow run.
+- The scraper uses heading-text matching and HTML table parsing.  If CRA changes the layout of a source page, the parser may fail or produce incorrect values.  Workflow run failures trigger a GitHub notification email, so monitor the **Actions** tab.
+- **All values must still be reviewed by a qualified Canadian payroll professional before being applied to live payroll.**
+
+---
+
 ## How to enable GitHub Pages
 
 1. Go to **Settings → Pages** in the `maplehornconsulting-art/payroll` repository.
@@ -69,26 +92,27 @@ https://maplehornconsulting-art.github.io/payroll/v1/ca/index.json
 {
   "schema_version": "1.0",
   "jurisdiction": "CA",
-  "effective_date": "2026-07-01",
+  "effective_date": "2026-01-01",
   "published_at": "2026-04-18T06:00:00Z",
   "source_urls": [
-    "https://www.canada.ca/.../t4127-...html",
-    "https://www.canada.ca/.../cpp-contribution-rates.html"
+    "https://www.canada.ca/.../t4127-jan-...-computer-programs.html",
+    "https://www.canada.ca/.../cpp-contribution-rates.html",
+    "https://www.canada.ca/.../ei-premium-rates-maximums.html"
   ],
   "federal": {
-    "bpaf": { "min": 14538.00, "max": 16129.00 },
-    "k1_rate": 0.15,
+    "bpaf": { "min": 14538.00, "max": 16452.00 },
+    "k1_rate": 0.14,
     "tax_brackets": [
-      { "up_to": 57375.00, "rate": 0.15 },
-      { "up_to": 114750.00, "rate": 0.205 },
-      { "up_to": 158519.00, "rate": 0.26 },
-      { "up_to": 220000.00, "rate": 0.29 },
+      { "up_to": 58523.00, "rate": 0.14 },
+      { "up_to": 117045.00, "rate": 0.205 },
+      { "up_to": 181440.00, "rate": 0.26 },
+      { "up_to": 258482.00, "rate": 0.29 },
       { "up_to": null,      "rate": 0.33 }
     ]
   },
-  "cpp": { "rate": 0.0595, "ympe": 71300, "basic_exemption": 3500 },
-  "cpp2": { "rate": 0.04, "yampe": 81900 },
-  "ei":  { "rate": 0.0166, "max_insurable_earnings": 65700 },
+  "cpp": { "rate": 0.0595, "ympe": 74600, "basic_exemption": 3500 },
+  "cpp2": { "rate": 0.04, "yampe": 85000 },
+  "ei":  { "rate": 0.0163, "max_insurable_earnings": 68900 },
   "provinces": {
     "ON": { "bpa": 11865, "tax_brackets": [ … ] },
     "BC": { "bpa": 11981, "tax_brackets": [ … ] }
@@ -103,7 +127,7 @@ https://maplehornconsulting-art.github.io/payroll/v1/ca/index.json
 |---|---|---|
 | `schema_version` | string | Feed schema version (`"1.0"`) |
 | `jurisdiction` | string | Always `"CA"` |
-| `effective_date` | string | CRA effective date (ISO 8601, e.g. `"2026-07-01"`) |
+| `effective_date` | string | CRA effective date (ISO 8601, e.g. `"2026-01-01"`) |
 | `published_at` | string | UTC timestamp when this file was generated |
 | `source_urls` | array | CRA pages used as data sources |
 | `federal.bpaf.min` | number | Federal basic personal amount at lower net income threshold |
@@ -163,7 +187,7 @@ A follow-up Odoo module (`l10n_ca_hr_payroll_cra_connector`) will:
 
 CRA publishes payroll updates effective **January 1** and **July 1** each year.
 
-- Parsers in `cra_feed/parsers/` should be reviewed and updated at least **2 weeks before each effective date** (i.e., by mid-December and mid-June).
+- Parsers in `cra_feed/parsers/` should be reviewed and tested at least **2 weeks before each effective date** (i.e., by mid-December and mid-June).
 - The GitHub Actions workflow runs daily; if any CRA page structure changes, the run will fail and GitHub will send a failure notification email.
 - Check the Actions tab for run history and failures.
 
@@ -175,7 +199,10 @@ CRA publishes payroll updates effective **January 1** and **July 1** each year.
 # Install dependencies
 pip install -r cra_feed/requirements.txt
 
-# Run the scraper
+# Run tests (no network required — uses local fixture HTML)
+pytest cra_feed/tests/ -v
+
+# Run the scraper (requires internet access to canada.ca)
 python -m cra_feed.scraper
 
 # Output files will appear under:

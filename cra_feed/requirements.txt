@@ -2,3 +2,5 @@ requests
 beautifulsoup4
 lxml
 pydantic>=2
+pytest
+responses

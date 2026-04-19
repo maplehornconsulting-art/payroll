@@ -184,7 +184,7 @@ class L10nCaRemittance(models.Model):
             if rec.period_start and rec.period_end:
                 period = f'{rec.period_start.strftime("%Y-%m")} '
             company_name = rec.company_id.name or ''
-            rec.name = f'{type_label} {period}— {company_name}'.strip(' —')
+            rec.name = f'{type_label} {period} — {company_name}'.strip()
 
     @api.depends('line_ids.amount')
     def _compute_total_amount(self):

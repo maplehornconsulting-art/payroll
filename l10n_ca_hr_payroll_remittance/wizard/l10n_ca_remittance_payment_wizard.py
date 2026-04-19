@@ -136,6 +136,9 @@ class L10nCaRemittancePaymentWizard(models.TransientModel):
         if to_reconcile:
             try:
                 to_reconcile.reconcile()
-            except Exception:
-                # Reconciliation is best-effort; don't block the payment
-                pass
+            except (UserError, ValueError) as exc:
+                # Reconciliation is best-effort; log but don't block the payment.
+                # Common causes: lines already reconciled, mismatched currencies.
+                import logging
+                _logger = logging.getLogger(__name__)
+                _logger.warning('Remittance reconciliation skipped: %s', exc)

@@ -6,17 +6,10 @@ real network calls are made.
 
 from __future__ import annotations
 
-import sys
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# Ensure the repo root is on the path so ``cra_feed`` is importable.
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -27,31 +20,6 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 def _read_fixture(name: str) -> str:
     return (FIXTURES_DIR / name).read_text(encoding="utf-8")
-
-
-def _mock_session(*url_html_pairs: tuple[str, str]) -> MagicMock:
-    """
-    Build a mock ``requests.Session`` whose ``.get()`` returns the supplied
-    HTML strings for their respective URLs (matched by substring).
-    """
-    mapping = dict(url_html_pairs)
-
-    session = MagicMock()
-
-    def _fake_get(url: str, **kwargs):
-        for key, html in mapping.items():
-            if key in url:
-                resp = MagicMock()
-                resp.text = html
-                resp.raise_for_status = MagicMock()
-                return resp
-        resp = MagicMock()
-        resp.text = "<html><body>Not found</body></html>"
-        resp.raise_for_status = MagicMock()
-        return resp
-
-    session.get.side_effect = _fake_get
-    return session
 
 
 # ---------------------------------------------------------------------------

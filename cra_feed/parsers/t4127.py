@@ -10,9 +10,10 @@ from __future__ import annotations
 import logging
 import re
 import time
-from datetime import datetime
+from datetime import date, datetime
 from urllib.parse import urljoin
 
+import requests as _requests
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
@@ -479,9 +480,8 @@ def _parse_one_province(soup: BeautifulSoup, prov_name: str, code: str) -> dict 
         section_tags.append(sibling)
 
     # Build a mini-soup from the section
-    from bs4 import BeautifulSoup as BS
     section_html = "".join(str(t) for t in section_tags)
-    section_soup = BS(f"<div>{section_html}</div>", "lxml")
+    section_soup = BeautifulSoup(f"<div>{section_html}</div>", "lxml")
 
     # --- Tax brackets ---
     brackets: list[dict] = []
@@ -561,8 +561,6 @@ def parse(session=None) -> dict:
       - source_url: str
       - provinces: dict[str, {"bpa": float, "tax_brackets": [...]}]
     """
-    import requests as _requests
-
     if session is None:
         session = _requests.Session()
         session.headers.update(
@@ -592,7 +590,6 @@ def parse(session=None) -> dict:
     # 4. Effective date
     effective_date = _parse_effective_date(soup)
     if effective_date is None:
-        from datetime import date
         effective_date = date.today().isoformat()
         logger.warning(
             "Could not parse effective date from T4127; falling back to today (%s)",

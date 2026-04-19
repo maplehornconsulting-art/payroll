@@ -17,6 +17,7 @@ import re
 import time
 from datetime import date
 
+import requests as _requests
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,38 @@ def _col_index(headers: list[str], *keywords: str) -> int | None:
     return None
 
 
+def _cell_float(tds: list, col: int | None) -> float | None:
+    """Return a float from ``tds[col]``, or ``None`` if col is out of range."""
+    if col is None or col >= len(tds):
+        return None
+    try:
+        return _parse_num(tds[col].get_text(strip=True))
+    except ValueError:
+        return None
+
+
+def _row_year(tds: list, year_col: int | None) -> int | None:
+    """Extract the 4-digit year from the year column of a data row."""
+    if year_col is None or year_col >= len(tds):
+        return None
+    m = re.search(r"\d{4}", tds[year_col].get_text(strip=True))
+    return int(m.group()) if m else None
+
+
+def _extract_headers_and_data(table) -> tuple[list[str], list]:
+    """Split table rows into header texts and data rows (td-only rows)."""
+    header_texts: list[str] = []
+    data_rows: list = []
+    for row in table.find_all("tr"):
+        ths = row.find_all("th")
+        tds = row.find_all("td")
+        if ths and not tds:
+            header_texts = [th.get_text(" ", strip=True) for th in ths]
+        elif tds:
+            data_rows.append(tds)
+    return header_texts, data_rows
+
+
 def _parse_cpp_page(html: str) -> tuple[dict, dict]:
     """
     Parse CPP and CPP2 data from the CRA CPP rates page.
@@ -85,17 +118,7 @@ def _parse_cpp_page(html: str) -> tuple[dict, dict]:
         if not rows:
             continue
 
-        # Extract header row(s)
-        header_texts: list[str] = []
-        data_rows: list = []
-        for row in rows:
-            ths = row.find_all("th")
-            tds = row.find_all("td")
-            if ths and not tds:
-                header_texts = [th.get_text(" ", strip=True) for th in ths]
-            elif tds:
-                data_rows.append(tds)
-
+        header_texts, data_rows = _extract_headers_and_data(table)
         if not header_texts or not data_rows:
             continue
 
@@ -106,7 +129,6 @@ def _parse_cpp_page(html: str) -> tuple[dict, dict]:
         has_ympe = any("ympe" in h or "maximum pensionable" in h for h in h_lower)
         has_yampe = any("yampe" in h or "additional maximum" in h for h in h_lower)
         has_rate = any("rate" in h or "contribution" in h for h in h_lower)
-        has_max_insurable = any("insurable" in h for h in h_lower)
 
         if not has_year_col:
             continue
@@ -120,24 +142,15 @@ def _parse_cpp_page(html: str) -> tuple[dict, dict]:
             exemption_col = _col_index(h_lower, "exemption")
 
             for tds in data_rows:
-                if year_col is None or year_col >= len(tds):
+                if _row_year(tds, year_col) != year:
                     continue
-                cell_year_text = tds[year_col].get_text(strip=True)
-                # Match year or "current year" / "2026" etc.
                 try:
-                    row_year = int(re.search(r"\d{4}", cell_year_text).group())
-                except (AttributeError, ValueError):
-                    continue
-                if row_year != year:
-                    continue
-
-                try:
-                    ympe_v = _parse_num(tds[ympe_col].get_text(strip=True)) if ympe_col is not None and ympe_col < len(tds) else None
-                    rate_v = _parse_num(tds[rate_col].get_text(strip=True)) if rate_col is not None and rate_col < len(tds) else None
-                    if rate_v and rate_v > 1:
+                    ympe_v = _cell_float(tds, ympe_col)
+                    rate_v = _cell_float(tds, rate_col)
+                    if rate_v is not None and rate_v > 1:
                         rate_v /= 100.0
-                    exemption_v = _parse_num(tds[exemption_col].get_text(strip=True)) if exemption_col is not None and exemption_col < len(tds) else 3500.0
-                    if ympe_v and rate_v:
+                    exemption_v = _cell_float(tds, exemption_col) or 3500.0
+                    if ympe_v is not None and rate_v is not None:
                         cpp = {
                             "rate": rate_v,
                             "ympe": int(ympe_v),
@@ -152,20 +165,14 @@ def _parse_cpp_page(html: str) -> tuple[dict, dict]:
             rate_col = _col_index(h_lower, "rate") or _col_index(h_lower, "contribution rate")
 
             for tds in data_rows:
-                if year_col is None or year_col >= len(tds):
+                if _row_year(tds, year_col) != year:
                     continue
                 try:
-                    row_year = int(re.search(r"\d{4}", tds[year_col].get_text(strip=True)).group())
-                except (AttributeError, ValueError):
-                    continue
-                if row_year != year:
-                    continue
-                try:
-                    yampe_v = _parse_num(tds[yampe_col].get_text(strip=True)) if yampe_col is not None and yampe_col < len(tds) else None
-                    rate_v = _parse_num(tds[rate_col].get_text(strip=True)) if rate_col is not None and rate_col < len(tds) else None
-                    if rate_v and rate_v > 1:
+                    yampe_v = _cell_float(tds, yampe_col)
+                    rate_v = _cell_float(tds, rate_col)
+                    if rate_v is not None and rate_v > 1:
                         rate_v /= 100.0
-                    if yampe_v and rate_v:
+                    if yampe_v is not None and rate_v is not None:
                         cpp2 = {"rate": rate_v, "yampe": int(yampe_v)}
                 except (ValueError, IndexError):
                     continue
@@ -192,26 +199,13 @@ def _parse_ei_page(html: str) -> dict:
         if not rows:
             continue
 
-        header_texts: list[str] = []
-        data_rows: list = []
-        for row in rows:
-            ths = row.find_all("th")
-            tds = row.find_all("td")
-            if ths and not tds:
-                header_texts = [th.get_text(" ", strip=True) for th in ths]
-            elif tds:
-                data_rows.append(tds)
-
+        header_texts, data_rows = _extract_headers_and_data(table)
         if not header_texts or not data_rows:
             continue
 
         h_lower = [h.lower() for h in header_texts]
         has_year = any("year" in h for h in h_lower)
         has_insurable = any("insurable" in h for h in h_lower)
-        has_employee_rate = any(
-            ("premium" in h or "rate" in h) and "employee" in h
-            for h in h_lower
-        ) or any("premium rate" in h for h in h_lower)
 
         if not (has_year and has_insurable):
             continue
@@ -229,22 +223,16 @@ def _parse_ei_page(html: str) -> dict:
         )
 
         for tds in data_rows:
-            if year_col is None or year_col >= len(tds):
+            if _row_year(tds, year_col) != year:
                 continue
             try:
-                row_year = int(re.search(r"\d{4}", tds[year_col].get_text(strip=True)).group())
-            except (AttributeError, ValueError):
-                continue
-            if row_year != year:
-                continue
-            try:
-                max_ins = _parse_num(tds[insurable_col].get_text(strip=True)) if insurable_col is not None and insurable_col < len(tds) else None
-                rate_v = _parse_num(tds[rate_col].get_text(strip=True)) if rate_col is not None and rate_col < len(tds) else None
-                # EI rate is typically expressed as "$X.XX per $100" → divide by 100
-                # or as a percentage → divide by 100
-                if rate_v and rate_v > 1:
+                max_ins = _cell_float(tds, insurable_col)
+                rate_v = _cell_float(tds, rate_col)
+                # EI rate is typically expressed as "$X.XX per $100" or as a
+                # percentage; values > 1 need dividing by 100
+                if rate_v is not None and rate_v > 1:
                     rate_v /= 100.0
-                if max_ins and rate_v:
+                if max_ins is not None and rate_v is not None:
                     ei = {
                         "rate": rate_v,
                         "max_insurable_earnings": int(max_ins),
@@ -269,8 +257,6 @@ def parse(session=None) -> dict:
       - ei:   {"rate": float, "max_insurable_earnings": int}
       - source_urls: list[str]
     """
-    import requests as _requests
-
     if session is None:
         session = _requests.Session()
         session.headers.update(

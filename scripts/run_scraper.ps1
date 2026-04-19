@@ -60,6 +60,11 @@ try {
     # -----------------------------------------------------------------------
     # Tests
     # -----------------------------------------------------------------------
+    # Move pytest's tmp root inside the repo so Windows Defender / OneDrive don't
+    # lock files we need to delete. Also wipe any stale temp dirs from prior runs.
+    Remove-Item "$env:LOCALAPPDATA\Temp\pytest-of-$env:USERNAME" -Recurse -Force -ErrorAction SilentlyContinue
+    $env:PYTEST_DEBUG_TEMPROOT = Join-Path $RepoDir "cra_feed\_pytest_tmp"
+    New-Item -ItemType Directory -Force -Path $env:PYTEST_DEBUG_TEMPROOT | Out-Null
     pytest cra_feed\tests\ -v
     if ($LASTEXITCODE -ne 0) { throw "Step failed with exit code $LASTEXITCODE" }
 
@@ -78,19 +83,21 @@ try {
     # -----------------------------------------------------------------------
     # Commit + push if anything changed
     # -----------------------------------------------------------------------
-    git add cra_feed/output/
-    git diff --cached --quiet
+    # Stage only what we own; check pathspec-scoped diff (not the whole index).
+    git add -- cra_feed/output/
+    git diff --cached --quiet -- cra_feed/output/
     if ($LASTEXITCODE -ne 0) {
-        $env:GIT_AUTHOR_NAME    = 'local-scraper'
-        $env:GIT_AUTHOR_EMAIL   = "local-scraper@$env:COMPUTERNAME"
+        $env:GIT_AUTHOR_NAME     = 'local-scraper'
+        $env:GIT_AUTHOR_EMAIL    = "local-scraper@$env:COMPUTERNAME"
         $env:GIT_COMMITTER_NAME  = 'local-scraper'
         $env:GIT_COMMITTER_EMAIL = "local-scraper@$env:COMPUTERNAME"
         try {
-            git commit -m 'chore: update CRA feed [local run] [skip ci]'
+            # Path-scoped commit — never picks up unrelated staged files.
+            git commit -m 'chore: update CRA feed [local run] [skip ci]' -- cra_feed/output/
             git push origin main
         } finally {
-            $env:GIT_AUTHOR_NAME    = $null
-            $env:GIT_AUTHOR_EMAIL   = $null
+            $env:GIT_AUTHOR_NAME     = $null
+            $env:GIT_AUTHOR_EMAIL    = $null
             $env:GIT_COMMITTER_NAME  = $null
             $env:GIT_COMMITTER_EMAIL = $null
         }

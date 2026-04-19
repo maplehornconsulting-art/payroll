@@ -52,6 +52,18 @@ _LEGACY_URL_PATHS = (
     "/tax/businesses/topics/",
 )
 
+# Regex to extract the month slug from a T4127 edition URL.
+# e.g. "…/t4127-jan.html" → group(1) = "jan"
+_EDITION_MONTH_RE = re.compile(r"/t4127-([a-z]+)\.html$", re.I)
+
+# Regex to detect recognizable federal/chapter content headings in a T4127 page.
+_FEDERAL_CONTENT_RE = re.compile(
+    r"federal\s+(changes|income\s+tax|tax\s+(rates?|formulas?))"
+    r"|chapter\s+\d"
+    r"|tax\s+formulas?",
+    re.I,
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -107,6 +119,41 @@ def _find_edition_url(index_html: str) -> str:
     return urljoin(T4127_INDEX_URL, chosen)
 
 
+def _edition_base_url(edition_url: str) -> str:
+    """
+    Return the sub-directory URL for a T4127 edition page.
+
+    ``"https://…/t4127-jan.html"``  →  ``"https://…/t4127-jan/"``
+
+    This is the directory that contains the chapter sub-pages.
+    """
+    base = edition_url
+    if base.lower().endswith(".html"):
+        base = base[:-5]  # strip ".html"
+    if not base.endswith("/"):
+        base = base + "/"
+    return base
+
+
+def _synthesise_doc_url(edition_url: str) -> str | None:
+    """
+    Synthesise the chapter document URL from the edition URL pattern.
+
+    Returns the expected computer-programs sub-page URL, e.g.:
+
+    ``"https://…/t4127-jan/"``
+    →  ``"https://…/t4127-jan/t4127-jan-payroll-deductions-formulas-computer-programs.html"``
+
+    Returns ``None`` if the edition URL does not match the expected pattern.
+    """
+    month_m = _EDITION_MONTH_RE.search(edition_url)
+    if not month_m:
+        return None
+    month = month_m.group(1).lower()
+    base = _edition_base_url(edition_url)
+    return f"{base}t4127-{month}-payroll-deductions-formulas-computer-programs.html"
+
+
 def _find_document_url(edition_url: str, edition_html: str) -> str:
     """
     From an edition landing page, find the URL of the actual formulas document.
@@ -122,8 +169,7 @@ def _find_document_url(edition_url: str, edition_html: str) -> str:
         first in the page HTML, the same-directory link is preferred.
 
     Layer 3 — If no suitable link is found at all, synthesise the document
-        URL from the known edition URL pattern:
-        ``<edition-dir>/t4127-<month>-payroll-deductions-formulas-computer-programs.html``
+        URL from the known edition URL pattern via :func:`_synthesise_doc_url`.
     """
     soup = BeautifulSoup(edition_html, "lxml")
 
@@ -138,11 +184,7 @@ def _find_document_url(edition_url: str, edition_html: str) -> str:
 
     # Compute the edition base directory for Layer 1 same-directory preference.
     # e.g. "https://…/t4127-jan.html" → "https://…/t4127-jan/"
-    edition_base = edition_url
-    if edition_base.lower().endswith(".html"):
-        edition_base = edition_base[:-5]  # strip ".html"
-    if not edition_base.endswith("/"):
-        edition_base = edition_base + "/"
+    edition_base = _edition_base_url(edition_url)
 
     # Scan links — collect by preference tier.
     # good_url  : within the edition's own sub-directory (best)
@@ -178,16 +220,10 @@ def _find_document_url(edition_url: str, edition_html: str) -> str:
         return other_url
 
     # Layer 3: synthesise document URL from the known edition URL pattern.
-    # "…/t4127-jan.html" → "…/t4127-jan/t4127-jan-payroll-deductions-formulas-computer-programs.html"
-    month_m = re.search(r"/t4127-([a-z]+)\.html$", edition_url, re.I)
-    if month_m:
-        month = month_m.group(1).lower()
-        template_url = (
-            f"{edition_base}"
-            f"t4127-{month}-payroll-deductions-formulas-computer-programs.html"
-        )
-        logger.info("Layer 3: synthesised document URL %s", template_url)
-        return template_url
+    synthesised = _synthesise_doc_url(edition_url)
+    if synthesised is not None:
+        logger.info("Layer 3: synthesised document URL %s", synthesised)
+        return synthesised
 
     # Ultimate fallback: the edition page itself is the document
     return edition_url
@@ -202,16 +238,9 @@ def _has_t4127_content(soup: BeautifulSoup) -> bool:
     header/menu/footer chrome with no tax content), this returns False so
     the caller can fall back to an alternative source.
     """
-    _federal_content_re = re.compile(
-        r"federal\s+(changes|income\s+tax|tax\s+(rates?|formulas?))"
-        r"|chapter\s+\d"
-        r"|tax\s+formulas?",
-        re.I,
-    )
-
     # Check headings for recognisable federal/chapter content
     for tag in soup.find_all(["h2", "h3"]):
-        if _federal_content_re.search(tag.get_text()):
+        if _FEDERAL_CONTENT_RE.search(tag.get_text()):
             return True
 
     # 2026+ bulleted-list bracket format
@@ -229,7 +258,6 @@ def _has_t4127_content(soup: BeautifulSoup) -> bool:
             return True
 
     return False
-
 
 
 def _parse_effective_date(soup: BeautifulSoup) -> str | None:
@@ -950,23 +978,17 @@ def parse(session=None, debug_dir=None) -> dict:
             "Attempting synthesised fallback URL.",
             doc_url,
         )
-        month_m = re.search(r"/t4127-([a-z]+)\.html$", edition_url, re.I)
-        if month_m:
-            month = month_m.group(1).lower()
-            _base = edition_url[:-5] + "/"  # strip ".html", add "/"
-            fallback_doc_url = (
-                f"{_base}t4127-{month}-payroll-deductions-formulas-computer-programs.html"
-            )
-            if fallback_doc_url != doc_url:
-                fallback_html = _fetch(session, fallback_doc_url)
-                fallback_soup = BeautifulSoup(fallback_html, "lxml")
-                if _has_t4127_content(fallback_soup):
-                    logger.info(
-                        "Layer 2 fallback: using synthesised URL %s", fallback_doc_url
-                    )
-                    doc_url = fallback_doc_url
-                    doc_html = fallback_html
-                    soup_doc = fallback_soup
+        fallback_doc_url = _synthesise_doc_url(edition_url)
+        if fallback_doc_url is not None and fallback_doc_url != doc_url:
+            fallback_html = _fetch(session, fallback_doc_url)
+            fallback_soup = BeautifulSoup(fallback_html, "lxml")
+            if _has_t4127_content(fallback_soup):
+                logger.info(
+                    "Layer 2 fallback: using synthesised URL %s", fallback_doc_url
+                )
+                doc_url = fallback_doc_url
+                doc_html = fallback_html
+                soup_doc = fallback_soup
 
     # 5. Effective date — try the formulas doc first, then the edition page
     effective_date = _parse_effective_date(soup_doc)

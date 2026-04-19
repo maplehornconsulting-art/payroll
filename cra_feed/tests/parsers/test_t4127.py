@@ -541,6 +541,7 @@ class TestEndToEndDualLinksDisambiguation:
         "https://www.canada.ca/en/revenue-agency/services/forms-publications/"
         "payroll/t4127-payroll-deductions-formulas/t4127-jan.html"
     )
+    _BAD_FRAGMENT = "/tax/businesses/topics/"
     _BAD_URL = (
         "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/"
         "payroll/t4127-payroll-deductions-formulas-computer-programs.html"
@@ -570,10 +571,10 @@ class TestEndToEndDualLinksDisambiguation:
             resp.raise_for_status = MagicMock()
             if url == t4127_mod.T4127_INDEX_URL:
                 resp.text = index_html
-            elif "/tax/businesses/topics/" in url:
-                resp.text = dead_html
             elif self._GOOD_FRAGMENT in url:
                 resp.text = good_html
+            elif self._BAD_FRAGMENT in url:
+                resp.text = dead_html
             else:
                 resp.text = edition_html
             return resp

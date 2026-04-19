@@ -45,6 +45,13 @@ PROVINCE_NAME_TO_CODE: dict[str, str] = {
 
 PROVINCES_IN_SCOPE = sorted(PROVINCE_NAME_TO_CODE.values())
 
+# URL path fragments that identify legacy CRA navigation/topic pages.
+# Links whose href contains any of these paths must never be used as the
+# document URL — they lead to redirect/shell pages with no T4127 content.
+_LEGACY_URL_PATHS = (
+    "/tax/businesses/topics/",
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -104,34 +111,125 @@ def _find_document_url(edition_url: str, edition_html: str) -> str:
     """
     From an edition landing page, find the URL of the actual formulas document.
 
-    If the edition page already contains bracket-like tables, it IS the
-    document.  Otherwise follow the first 'computer-programs' or 'formulas'
-    link to the deeper sub-page that holds the actual tax data.
+    If the edition page already contains bracket-like tables or a bulleted-list
+    bracket section (2026+ format), it IS the document.
 
-    Note: the old heuristic of checking for text keywords like "taxable income"
-    was too broad — TOC pages often include those words in link text, causing a
-    false early-return.  We now require an actual scoring-positive table.
+    Otherwise search for a linked sub-page using three layers:
+
+    Layer 1 — Prefer same-directory chapter links; reject legacy
+        ``/tax/businesses/topics/`` navigation paths that are dead/redirect
+        pages with no T4127 content.  Even when a bad legacy link appears
+        first in the page HTML, the same-directory link is preferred.
+
+    Layer 3 — If no suitable link is found at all, synthesise the document
+        URL from the known edition URL pattern:
+        ``<edition-dir>/t4127-<month>-payroll-deductions-formulas-computer-programs.html``
     """
     soup = BeautifulSoup(edition_html, "lxml")
 
-    # If the page already has a bracket-like table, it is itself the document
+    # If the page already has a scoring bracket table, it is itself the document
     for table in soup.find_all("table"):
         if _score_bracket_table(table) >= 2:
             return edition_url
 
-    # No bracket tables found — look for a linked sub-page
+    # 2026+ format: edition page may carry bulleted-list brackets instead
+    if _parse_brackets_from_ul(soup):
+        return edition_url
+
+    # Compute the edition base directory for Layer 1 same-directory preference.
+    # e.g. "https://…/t4127-jan.html" → "https://…/t4127-jan/"
+    edition_base = edition_url
+    if edition_base.lower().endswith(".html"):
+        edition_base = edition_base[:-5]  # strip ".html"
+    if not edition_base.endswith("/"):
+        edition_base = edition_base + "/"
+
+    # Scan links — collect by preference tier.
+    # good_url  : within the edition's own sub-directory (best)
+    # other_url : not a legacy path, but not same-dir (acceptable fallback)
+    good_url: str | None = None
+    other_url: str | None = None
+
     for a in soup.find_all("a", href=True):
         href = a["href"]
         href_l = href.lower()
         if href_l.endswith(".pdf"):
             continue
-        if "computer-programs" in href_l or (
-            "t4127" in href_l and "formulas" in href_l and href_l.endswith(".html")
+        if not (
+            "computer-programs" in href_l
+            or ("t4127" in href_l and "formulas" in href_l and href_l.endswith(".html"))
         ):
-            return urljoin(edition_url, href)
+            continue
 
-    # Fall back: the edition page itself is the document
+        # Layer 1: reject legacy CRA navigation/topic-page links
+        if any(legacy in href_l for legacy in _LEGACY_URL_PATHS):
+            continue
+
+        resolved = urljoin(edition_url, href)
+        if resolved.startswith(edition_base):
+            if good_url is None:
+                good_url = resolved
+        elif other_url is None:
+            other_url = resolved
+
+    if good_url is not None:
+        return good_url
+    if other_url is not None:
+        return other_url
+
+    # Layer 3: synthesise document URL from the known edition URL pattern.
+    # "…/t4127-jan.html" → "…/t4127-jan/t4127-jan-payroll-deductions-formulas-computer-programs.html"
+    month_m = re.search(r"/t4127-([a-z]+)\.html$", edition_url, re.I)
+    if month_m:
+        month = month_m.group(1).lower()
+        template_url = (
+            f"{edition_base}"
+            f"t4127-{month}-payroll-deductions-formulas-computer-programs.html"
+        )
+        logger.info("Layer 3: synthesised document URL %s", template_url)
+        return template_url
+
+    # Ultimate fallback: the edition page itself is the document
     return edition_url
+
+
+def _has_t4127_content(soup: BeautifulSoup) -> bool:
+    """
+    Return True if *soup* appears to contain real T4127 tax content.
+
+    Used as a Layer-2 sanity check after fetching a candidate document URL.
+    If the fetched page is a dead navigation/redirect shell (only
+    header/menu/footer chrome with no tax content), this returns False so
+    the caller can fall back to an alternative source.
+    """
+    _federal_content_re = re.compile(
+        r"federal\s+(changes|income\s+tax|tax\s+(rates?|formulas?))"
+        r"|chapter\s+\d"
+        r"|tax\s+formulas?",
+        re.I,
+    )
+
+    # Check headings for recognisable federal/chapter content
+    for tag in soup.find_all(["h2", "h3"]):
+        if _federal_content_re.search(tag.get_text()):
+            return True
+
+    # 2026+ bulleted-list bracket format
+    if _parse_brackets_from_ul(soup):
+        return True
+
+    # Table with a caption mentioning federal income tax
+    for table in soup.find_all("table"):
+        cap = table.find("caption")
+        if cap:
+            cap_l = cap.get_text().lower()
+            if "federal" in cap_l and ("tax" in cap_l or "income" in cap_l):
+                return True
+        if _score_bracket_table(table) >= 2:
+            return True
+
+    return False
+
 
 
 def _parse_effective_date(soup: BeautifulSoup) -> str | None:
@@ -842,6 +940,33 @@ def parse(session=None, debug_dir=None) -> dict:
     else:
         doc_html = edition_html
         soup_doc = soup_edition
+
+    # 4b. Layer 2: validate the fetched document page actually has T4127 content.
+    #     If the chosen doc_url turned out to be a dead navigation/redirect shell,
+    #     try the synthesised URL as a safety net before the parsing step.
+    if doc_url != edition_url and not _has_t4127_content(soup_doc):
+        logger.warning(
+            "Document URL %s appears to be a navigation shell (no T4127 content). "
+            "Attempting synthesised fallback URL.",
+            doc_url,
+        )
+        month_m = re.search(r"/t4127-([a-z]+)\.html$", edition_url, re.I)
+        if month_m:
+            month = month_m.group(1).lower()
+            _base = edition_url[:-5] + "/"  # strip ".html", add "/"
+            fallback_doc_url = (
+                f"{_base}t4127-{month}-payroll-deductions-formulas-computer-programs.html"
+            )
+            if fallback_doc_url != doc_url:
+                fallback_html = _fetch(session, fallback_doc_url)
+                fallback_soup = BeautifulSoup(fallback_html, "lxml")
+                if _has_t4127_content(fallback_soup):
+                    logger.info(
+                        "Layer 2 fallback: using synthesised URL %s", fallback_doc_url
+                    )
+                    doc_url = fallback_doc_url
+                    doc_html = fallback_html
+                    soup_doc = fallback_soup
 
     # 5. Effective date — try the formulas doc first, then the edition page
     effective_date = _parse_effective_date(soup_doc)

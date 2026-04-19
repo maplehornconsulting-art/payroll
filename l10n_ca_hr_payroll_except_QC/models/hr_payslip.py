@@ -7,19 +7,6 @@ from odoo import api, models
 class HrPayslip(models.Model):
     _inherit = 'hr.payslip'
 
-    # Mapping from Odoo schedule_pay selection values to periods per year.
-    _L10N_CA_SCHEDULE_PERIODS = {
-        'annually': 1,
-        'semi-annually': 2,
-        'quarterly': 4,
-        'bi-monthly': 6,
-        'monthly': 12,
-        'semi-monthly': 24,
-        'bi-weekly': 26,
-        'weekly': 52,
-        'daily': 260,
-    }
-
     def _l10n_ca_periods_per_year(self):
         """Return the number of pay periods per year for this payslip's schedule.
 

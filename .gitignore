@@ -14,3 +14,7 @@ __pycache__/
 .venv/
 venv/
 env/
+
+# Debug HTML dumps from --debug-html
+dist/
+

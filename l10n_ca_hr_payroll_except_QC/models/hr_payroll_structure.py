@@ -7,19 +7,22 @@ class HrPayrollStructure(models.Model):
     _inherit = "hr.payroll.structure"
 
     @api.model
-    def _l10n_ca_clone_rules_to_salaried(self, structs):
-        """Copy every salary rule from structs[0] into structs[1].
+    def _l10n_ca_clone_rules_to_salaried(self, source_struct, target_struct):
+        """Copy every salary rule from *source_struct* into *target_struct*.
 
-        Idempotent on rule ``code``: if the target structure already contains a
-        rule with the same code, it is left unchanged.  Safe to call from a
-        data file on every upgrade — re-running does not duplicate rules.
+        Idempotent on rule ``code`` — re-running an upgrade does not
+        duplicate rules.
 
-        :param structs: recordset of exactly two ``hr.payroll.structure`` records
-                        where ``structs[0]`` is the source (hourly) and
-                        ``structs[1]`` is the target (salaried).
+        The XML ``<function>`` tag passes the eval'd list as positional
+        args, so each argument arrives as a plain integer id rather than a
+        recordset. Browse them defensively to support both call styles.
         """
-        source_struct = structs[0]
-        target_struct = structs[1]
+        Structure = self.env["hr.payroll.structure"]
+        if isinstance(source_struct, int):
+            source_struct = Structure.browse(source_struct)
+        if isinstance(target_struct, int):
+            target_struct = Structure.browse(target_struct)
+
         existing_codes = {r.code for r in target_struct.rule_ids}
         for rule in source_struct.rule_ids:
             if rule.code in existing_codes:

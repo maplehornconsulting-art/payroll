@@ -396,7 +396,7 @@ def _parse_ei_page(html: str) -> dict:
         )
         # Employee premium rate; prefer columns that also mention "(%)" to
         # avoid matching the employer rate or maximum-premium columns.
-         rate_col = _col_index_any(
+        rate_col = _col_index_any(
             h_lower,
             ("rate", "(%"),
             ("employee", "rate", "(%"),

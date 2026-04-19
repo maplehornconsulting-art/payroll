@@ -84,8 +84,8 @@ def _canonical_checksum(data: dict) -> str:
 def _province_to_dict(prov: "ProvinceData") -> dict:
     """Serialize a ProvinceData model, omitting k1p when it is None."""
     d = prov.model_dump()
-    if d.get("k1p") is None:
-        d.pop("k1p", None)
+    if d["k1p"] is None:
+        d.pop("k1p")
     return d
 
 

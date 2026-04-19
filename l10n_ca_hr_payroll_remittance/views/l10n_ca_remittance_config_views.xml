@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+
+    <!-- Remittance Config — form view -->
+    <record id="view_l10n_ca_remittance_config_form" model="ir.ui.view">
+        <field name="name">l10n.ca.remittance.config.form</field>
+        <field name="model">l10n.ca.remittance.config</field>
+        <field name="arch" type="xml">
+            <form string="Remittance Configuration">
+                <sheet>
+                    <group>
+                        <group string="Company">
+                            <field name="company_id"/>
+                            <field name="remitter_type"/>
+                            <field name="auto_create_remittances"/>
+                        </group>
+                        <group string="CRA Settings">
+                            <field name="cra_business_number" placeholder="123456789RP0001"/>
+                            <field name="cra_partner_id"/>
+                            <field name="default_bank_journal_id"/>
+                        </group>
+                    </group>
+                    <group string="Provincial Settings">
+                        <group>
+                            <field name="eht_account_number"/>
+                        </group>
+                        <group>
+                            <field name="wcb_province"/>
+                            <field name="wcb_account_number"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Remittance Config — list view -->
+    <record id="view_l10n_ca_remittance_config_list" model="ir.ui.view">
+        <field name="name">l10n.ca.remittance.config.list</field>
+        <field name="model">l10n.ca.remittance.config</field>
+        <field name="arch" type="xml">
+            <list string="Remittance Configurations">
+                <field name="company_id"/>
+                <field name="remitter_type"/>
+                <field name="cra_business_number"/>
+                <field name="auto_create_remittances"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_l10n_ca_remittance_config" model="ir.actions.act_window">
+        <field name="name">Remittance Configuration</field>
+        <field name="res_model">l10n.ca.remittance.config</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

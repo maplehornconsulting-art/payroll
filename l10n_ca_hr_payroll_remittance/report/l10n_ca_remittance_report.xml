@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+
+    <record id="action_report_l10n_ca_remittance_voucher" model="ir.actions.report">
+        <field name="name">PD7A Remittance Voucher</field>
+        <field name="model">l10n.ca.remittance</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">l10n_ca_hr_payroll_remittance.report_remittance_voucher</field>
+        <field name="report_file">l10n_ca_hr_payroll_remittance.report_remittance_voucher</field>
+        <field name="binding_model_id" ref="model_l10n_ca_remittance"/>
+        <field name="binding_type">report</field>
+        <field name="paperformat_id" ref="base.paperformat_euro"/>
+    </record>
+
+</odoo>

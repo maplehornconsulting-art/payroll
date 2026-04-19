@@ -219,7 +219,7 @@ All tax parameters are stored as **dated rule parameters** (`hr.rule.parameter.v
 2. Find the parameter (e.g., "Canada - CPP Employee Rate")
 3. Add a new value with the new `date_from` and updated amount
 
-Provincial brackets are embedded in the PROV_TAX salary rule for maximum compatibility. To update provincial rates for a new year, update the `PROV` dictionary in the Provincial Income Tax salary rule.
+Provincial brackets are stored in the `l10n_ca_prov_tax_config` rule parameter (one JSON blob for all provinces). The CRA Connector module updates this parameter automatically each year. To update manually, go to **Payroll → Configuration → Rule Parameters** and edit "Canada - Provincial Tax Config (All Provinces)". The `PROV_TAX` salary rule also contains an embedded 2026 fallback that is used when the parameter is absent.
 
 ---
 
@@ -248,6 +248,10 @@ A future `l10n_ca_qc_hr_payroll` module may be developed for Quebec.
 ---
 
 ## Changelog
+
+### v1.3 (April 2026)
+- ✅ Read provincial tax config (`PROV_TAX` rule) from `l10n_ca_prov_tax_config` rule parameter so CRA connector updates take effect without a module upgrade; embedded 2026 values serve as fallback
+- ✅ Read Ontario Health Premium config (`OHP` rule) from new `l10n_ca_ohp_config` rule parameter with 2026 tiers as fallback
 
 ### v1.2 (April 2026)
 - ✅ Ship both **Canadian Employee — Hourly** and **Canadian Employee — Salaried** structure types out of the box

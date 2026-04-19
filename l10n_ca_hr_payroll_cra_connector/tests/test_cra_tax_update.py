@@ -152,3 +152,131 @@ class TestBuildProvBlob:
         }
         blob = _build_prov_blob(provinces)
         assert blob["BC"]["surtax"] == []
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: connector blob flows into PROV_TAX rule logic
+# ---------------------------------------------------------------------------
+# These tests verify that the JSON produced by _build_prov_blob is directly
+# consumable by the new PROV_TAX rule logic (which reads the 'brackets' and
+# 'surtax' keys produced by the connector, normalising at read-time).
+
+
+def _prov_tax_from_blob(blob_json: str, province: str, gross: float, periods: int) -> float:
+    """Replicate PROV_TAX rule logic reading from a connector-produced blob."""
+    annual_income = gross * periods
+
+    PROV_RAW = json.loads(blob_json)
+
+    cfg_raw = PROV_RAW.get(province) or PROV_RAW.get('ON') or {}
+    cfg = {
+        'b':   cfg_raw.get('brackets', []),
+        'bpa': cfg_raw.get('bpa', 0),
+        'st':  cfg_raw.get('surtax', []),
+    }
+
+    prov_brackets = []
+    for br in cfg['b']:
+        t = br[0] if br[0] != 0 else float('inf')
+        prov_brackets.append((t, br[1]))
+
+    if not prov_brackets:
+        return 0.0
+
+    tax = 0.0
+    prev_bracket = 0.0
+    for bracket, rate in prov_brackets:
+        taxable_in_bracket = min(annual_income, bracket) - prev_bracket
+        if taxable_in_bracket > 0:
+            tax += taxable_in_bracket * rate
+        prev_bracket = bracket
+        if annual_income <= bracket:
+            break
+
+    prov_credit = cfg['bpa'] * prov_brackets[0][1]
+    basic_provincial_tax = max(tax - prov_credit, 0.0)
+
+    surtax = 0.0
+    for s in cfg['st']:
+        if basic_provincial_tax > s[0]:
+            surtax += (basic_provincial_tax - s[0]) * s[1]
+
+    return round(-((basic_provincial_tax + surtax) / periods), 2)
+
+
+class TestConnectorBlobFlowsIntoProcTaxRule:
+    """End-to-end: _build_prov_blob output consumed by PROV_TAX rule logic."""
+
+    _PROVINCES_2027 = {
+        "NS": {
+            "bpa": 12500,  # bumped vs 2026 (11932) — synthetic 2027
+            "tax_brackets": [
+                {"up_to": 32000, "rate": 0.0879},
+                {"up_to": 64000, "rate": 0.1495},
+                {"up_to": 100000, "rate": 0.1667},
+                {"up_to": 160000, "rate": 0.175},
+                {"up_to": None, "rate": 0.21},
+            ],
+            "surtax": [],
+        },
+        "ON": {
+            "bpa": 13500,
+            "tax_brackets": [
+                {"up_to": 55000, "rate": 0.0505},
+                {"up_to": 110000, "rate": 0.0915},
+                {"up_to": 155000, "rate": 0.1116},
+                {"up_to": 225000, "rate": 0.1216},
+                {"up_to": None, "rate": 0.1316},
+            ],
+            "surtax": [[5818, 0.20], [7446, 0.36]],
+        },
+    }
+
+    @pytest.fixture(scope="class")
+    def blob_json(self):
+        blob = _build_prov_blob(self._PROVINCES_2027)
+        return json.dumps(blob, indent=2, ensure_ascii=False, sort_keys=True)
+
+    def test_blob_is_valid_json(self, blob_json):
+        """Connector blob must be valid JSON."""
+        parsed = json.loads(blob_json)
+        assert isinstance(parsed, dict)
+
+    def test_blob_uses_brackets_key(self, blob_json):
+        """Connector blob keys are 'brackets', 'bpa', 'surtax' (not 'b'/'st')."""
+        parsed = json.loads(blob_json)
+        assert "brackets" in parsed["NS"]
+        assert "bpa" in parsed["NS"]
+        assert "surtax" in parsed["NS"]
+
+    def test_rule_reads_connector_bpa(self, blob_json):
+        """After connector runs, PROV_TAX reflects the new BPA from the blob."""
+        gross = 1203.13
+        periods = 52
+        result_2027 = _prov_tax_from_blob(blob_json, "NS", gross, periods)
+        # With bpa=12500 (> 2026 baseline 11932) → less withholding
+        result_2026 = _prov_tax_from_blob(
+            json.dumps(_build_prov_blob({"NS": {
+                "bpa": 11932,
+                "tax_brackets": [
+                    {"up_to": 30995, "rate": 0.0879},
+                    {"up_to": 61991, "rate": 0.1495},
+                    {"up_to": 97417, "rate": 0.1667},
+                    {"up_to": 157124, "rate": 0.175},
+                    {"up_to": None, "rate": 0.21},
+                ],
+                "surtax": [],
+            }})),
+            "NS", gross, periods,
+        )
+        assert result_2027 > result_2026, (
+            "Higher 2027 BPA should reduce PROV_TAX withholding vs 2026 baseline"
+        )
+
+    def test_on_surtax_flows_through(self, blob_json):
+        """ON surtax from connector blob is applied correctly in rule logic."""
+        # ON income high enough to trigger surtax
+        gross_high = 200000 / 52
+        result = _prov_tax_from_blob(blob_json, "ON", gross_high, 52)
+        assert result < 0, "ON PROV_TAX at high income should be negative"
+

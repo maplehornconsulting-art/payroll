@@ -305,24 +305,45 @@ annual_income = taxable_per_period * periods
 # Get province from employee record (falls back to ON)
 province = employee.l10n_ca_province_id.code or 'ON'
 
-# Province configs: brackets [[threshold, rate], ...], bpa, surtax [[threshold, rate], ...]
-# Threshold 0 = top bracket (no upper limit)
-PROV = {
-    'ON': {'b': [[53891, 0.0505], [107785, 0.0915], [150000, 0.1116], [220000, 0.1216], [0, 0.1316]], 'bpa': 12989, 'st': [[5818, 0.20], [7446, 0.36]]},
-    'AB': {'b': [[61200, 0.08], [154259, 0.10], [185111, 0.12], [246813, 0.13], [370220, 0.14], [0, 0.15]], 'bpa': 22769, 'st': []},
-    'BC': {'b': [[50363, 0.0506], [100728, 0.077], [115648, 0.105], [140430, 0.1229], [190405, 0.147], [265545, 0.168], [0, 0.205]], 'bpa': 13216, 'st': []},
-    'SK': {'b': [[54532, 0.105], [155805, 0.125], [0, 0.145]], 'bpa': 20381, 'st': []},
-    'MB': {'b': [[47000, 0.108], [100000, 0.1275], [0, 0.174]], 'bpa': 15780, 'st': []},
-    'NB': {'b': [[52333, 0.094], [104666, 0.14], [193861, 0.16], [0, 0.195]], 'bpa': 13664, 'st': []},
-    'NS': {'b': [[30995, 0.0879], [61991, 0.1495], [97417, 0.1667], [157124, 0.175], [0, 0.21]], 'bpa': 11932, 'st': []},
-    'PE': {'b': [[33928, 0.095], [65820, 0.1347], [106890, 0.166], [142250, 0.1762], [0, 0.19]], 'bpa': 15000, 'st': []},
-    'NL': {'b': [[44678, 0.087], [89354, 0.145], [159528, 0.158], [223340, 0.178], [285319, 0.198], [570638, 0.208], [1141275, 0.213], [0, 0.218]], 'bpa': 11188, 'st': []},
-    'NT': {'b': [[53003, 0.059], [106009, 0.086], [172346, 0.122], [0, 0.1405]], 'bpa': 18198, 'st': []},
-    'YT': {'b': [[58523, 0.064], [117045, 0.09], [181440, 0.109], [500000, 0.128], [0, 0.15]], 'bpa': 16452, 'st': []},
-    'NU': {'b': [[55801, 0.04], [111602, 0.07], [181439, 0.09], [0, 0.115]], 'bpa': 19659, 'st': []},
-}
+import json  # each salary rule runs in its own exec context — import is required per rule
 
-cfg = PROV.get(province, PROV['ON'])
+# Read consolidated provincial tax config from the rule parameter
+# (written by the CRA connector each year). Falls back to the
+# embedded 2026 baseline if the parameter is missing/unparseable so
+# a fresh install without the connector still computes correctly.
+prov_config_raw = payslip._rule_parameter('l10n_ca_prov_tax_config')
+PROV_RAW = None
+if isinstance(prov_config_raw, str):
+    try:
+        PROV_RAW = json.loads(prov_config_raw)
+    except (ValueError, TypeError):
+        PROV_RAW = None
+elif isinstance(prov_config_raw, dict):
+    PROV_RAW = prov_config_raw
+
+if not PROV_RAW:
+    # Fallback baseline (2026). Keep in sync with hr_rule_parameters_data.xml.
+    PROV_RAW = {
+        'ON': {'brackets': [[53891, 0.0505], [107785, 0.0915], [150000, 0.1116], [220000, 0.1216], [0, 0.1316]], 'bpa': 12989, 'surtax': [[5818, 0.20], [7446, 0.36]]},
+        'AB': {'brackets': [[61200, 0.08], [154259, 0.10], [185111, 0.12], [246813, 0.13], [370220, 0.14], [0, 0.15]], 'bpa': 22769, 'surtax': []},
+        'BC': {'brackets': [[50363, 0.0506], [100728, 0.077], [115648, 0.105], [140430, 0.1229], [190405, 0.147], [265545, 0.168], [0, 0.205]], 'bpa': 13216, 'surtax': []},
+        'SK': {'brackets': [[54532, 0.105], [155805, 0.125], [0, 0.145]], 'bpa': 20381, 'surtax': []},
+        'MB': {'brackets': [[47000, 0.108], [100000, 0.1275], [0, 0.174]], 'bpa': 15780, 'surtax': []},
+        'NB': {'brackets': [[52333, 0.094], [104666, 0.14], [193861, 0.16], [0, 0.195]], 'bpa': 13664, 'surtax': []},
+        'NS': {'brackets': [[30995, 0.0879], [61991, 0.1495], [97417, 0.1667], [157124, 0.175], [0, 0.21]], 'bpa': 11932, 'surtax': []},
+        'PE': {'brackets': [[33928, 0.095], [65820, 0.1347], [106890, 0.166], [142250, 0.1762], [0, 0.19]], 'bpa': 15000, 'surtax': []},
+        'NL': {'brackets': [[44678, 0.087], [89354, 0.145], [159528, 0.158], [223340, 0.178], [285319, 0.198], [570638, 0.208], [1141275, 0.213], [0, 0.218]], 'bpa': 11188, 'surtax': []},
+        'NT': {'brackets': [[53003, 0.059], [106009, 0.086], [172346, 0.122], [0, 0.1405]], 'bpa': 18198, 'surtax': []},
+        'YT': {'brackets': [[58523, 0.064], [117045, 0.09], [181440, 0.109], [500000, 0.128], [0, 0.15]], 'bpa': 16452, 'surtax': []},
+        'NU': {'brackets': [[55801, 0.04], [111602, 0.07], [181439, 0.09], [0, 0.115]], 'bpa': 19659, 'surtax': []},
+    }
+
+cfg_raw = PROV_RAW.get(province) or PROV_RAW.get('ON') or {}
+cfg = {
+    'b':   cfg_raw.get('brackets', []),
+    'bpa': cfg_raw.get('bpa', 0),
+    'st':  cfg_raw.get('surtax', []),
+}
 
 # Build brackets (0 = infinity for top bracket)
 prov_brackets = []
@@ -377,19 +398,38 @@ taxable_per_period = gross_amount - rrsp - union
 periods = payslip._l10n_ca_periods_per_year()
 annual_income = taxable_per_period * periods
 
+import json  # each salary rule runs in its own exec context — import is required per rule
+ohp_config_raw = payslip._rule_parameter('l10n_ca_ohp_config')
+OHP_CFG = None
+if isinstance(ohp_config_raw, str):
+    try:
+        OHP_CFG = json.loads(ohp_config_raw)
+    except (ValueError, TypeError):
+        OHP_CFG = None
+elif isinstance(ohp_config_raw, dict):
+    OHP_CFG = ohp_config_raw
+
+if not OHP_CFG or not OHP_CFG.get('tiers'):
+    OHP_CFG = {'tiers': [
+        {'upto':  20000, 'base':   0, 'rate': 0,      'cap':   0},
+        {'upto':  36000, 'base':   0, 'rate': 0.06,   'cap': 300},
+        {'upto':  48000, 'base': 300, 'rate': 0.06,   'cap': 150},
+        {'upto':  72000, 'base': 450, 'rate': 0.0025, 'cap': 150},
+        {'upto': 200000, 'base': 600, 'rate': 0.0025, 'cap': 300},
+        {'upto':  None,  'base': 900, 'rate': 0,      'cap':   0},
+    ]}
+
 ohp = 0
-if annual_income &lt;= 20000:
-    ohp = 0
-elif annual_income &lt;= 36000:
-    ohp = min((annual_income - 20000) * 0.06, 300)
-elif annual_income &lt;= 48000:
-    ohp = 300 + min((annual_income - 36000) * 0.06, 150)
-elif annual_income &lt;= 72000:
-    ohp = 450 + min((annual_income - 48000) * 0.0025, 150)
-elif annual_income &lt;= 200000:
-    ohp = 600 + min((annual_income - 72000) * 0.0025, 300)
-else:
-    ohp = 900
+prev_upto = 0
+for tier in OHP_CFG['tiers']:
+    upto = tier.get('upto')
+    if upto is None or annual_income &lt;= upto:
+        delta = annual_income - prev_upto
+        ohp = tier['base'] + (min(delta * tier['rate'], tier['cap']) if tier.get('cap') else delta * tier.get('rate', 0))
+        if upto is None:
+            ohp = tier['base']
+        break
+    prev_upto = upto
 
 result = -(ohp / periods)
         </field>

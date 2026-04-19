@@ -329,6 +329,32 @@
 }</field>
     </record>
 
+    <!-- ======================== ONTARIO HEALTH PREMIUM CONFIG (JSON) ======================== -->
+    <!--
+        OHP tiers: each tier has upto (null = open-ended), base annual amount,
+        rate applied to income above the previous tier's upto, and a cap on
+        the marginal amount. Written once per year; updated by admin or CRA connector.
+    -->
+    <record id="rule_parameter_l10n_ca_ohp_config" model="hr.rule.parameter">
+        <field name="name">Canada - Ontario Health Premium Config</field>
+        <field name="code">l10n_ca_ohp_config</field>
+        <field name="country_id" ref="base.ca"/>
+    </record>
+    <record id="rule_parameter_l10n_ca_ohp_config_2026" model="hr.rule.parameter.value">
+        <field name="rule_parameter_id" ref="rule_parameter_l10n_ca_ohp_config"/>
+        <field name="date_from">2026-01-01</field>
+        <field name="parameter_value">{
+  "tiers": [
+    {"upto":  20000, "base":   0, "rate": 0,      "cap":   0},
+    {"upto":  36000, "base":   0, "rate": 0.06,   "cap": 300},
+    {"upto":  48000, "base": 300, "rate": 0.06,   "cap": 150},
+    {"upto":  72000, "base": 450, "rate": 0.0025, "cap": 150},
+    {"upto": 200000, "base": 600, "rate": 0.0025, "cap": 300},
+    {"upto":  null,  "base": 900, "rate": 0,      "cap":   0}
+  ]
+}</field>
+    </record>
+
     <!-- ======================== Overtime Parameters ======================== -->
     <record id="rule_parameter_l10n_ca_overtime_multiplier" model="hr.rule.parameter">
         <field name="name">Canada - Overtime Multiplier</field>

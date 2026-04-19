@@ -101,7 +101,7 @@ def _clean_header_text(th) -> str:
     ]
     for tag in to_remove:
         tag.decompose()
-    text = th_copy.get_text(separator=" ", strip=True)
+    text = th_copy.get_text(separator="", strip=True)
     return re.sub(r"\s+", " ", text).strip()
 
 

@@ -711,7 +711,7 @@ class TestCleanHeaderText:
 
     def _th(self, inner_html: str):
         from bs4 import BeautifulSoup
-        return BeautifulSoup(f"<th>{inner_html}</th>", "lxml").find("th")
+        return BeautifulSoup(f"<table><tr><th>{inner_html}</th></tr></table>", "lxml").find("th")
 
     def test_strips_wb_inv(self):
         """wb-inv span (screen-reader duplicate text) must be removed."""

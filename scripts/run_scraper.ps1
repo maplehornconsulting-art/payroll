@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Runs the CRA payroll feed scraper locally and pushes updated JSON to GitHub.
@@ -31,7 +31,7 @@ $LogFile = Join-Path $LogDir "run-$Timestamp.log"
 Start-Transcript -Path $LogFile -Append
 
 try {
-    Write-Host "=== CRA Feed Scraper — start $(Get-Date -Format o) ==="
+    Write-Host "=== CRA Feed Scraper -- start $(Get-Date -Format o) ==="
 
     # -----------------------------------------------------------------------
     # Git: sync to latest main
@@ -53,22 +53,27 @@ try {
     & ".venv\Scripts\Activate.ps1"
 
     python -m pip install --quiet --upgrade pip
+    if ($LASTEXITCODE -ne 0) { throw "Step failed with exit code $LASTEXITCODE" }
     pip install --quiet -r cra_feed\requirements.txt
+    if ($LASTEXITCODE -ne 0) { throw "Step failed with exit code $LASTEXITCODE" }
 
     # -----------------------------------------------------------------------
     # Tests
     # -----------------------------------------------------------------------
     pytest cra_feed\tests\ -v
+    if ($LASTEXITCODE -ne 0) { throw "Step failed with exit code $LASTEXITCODE" }
 
     # -----------------------------------------------------------------------
     # Scrape
     # -----------------------------------------------------------------------
     python -m cra_feed.scraper --debug-html
+    if ($LASTEXITCODE -ne 0) { throw "Step failed with exit code $LASTEXITCODE" }
 
     # -----------------------------------------------------------------------
     # Validate
     # -----------------------------------------------------------------------
     python -m cra_feed.validate cra_feed\output\v1\ca\latest.json
+    if ($LASTEXITCODE -ne 0) { throw "Step failed with exit code $LASTEXITCODE" }
 
     # -----------------------------------------------------------------------
     # Commit + push if anything changed
@@ -93,7 +98,7 @@ try {
         Write-Host "No changes to commit."
     }
 
-    Write-Host "=== CRA Feed Scraper — end $(Get-Date -Format o) ==="
+    Write-Host "=== CRA Feed Scraper -- end $(Get-Date -Format o) ==="
 }
 finally {
     Stop-Transcript

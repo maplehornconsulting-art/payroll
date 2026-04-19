@@ -312,3 +312,93 @@ class TestRealJan2026:
 
     def test_bpaf_max_greater_than_min(self, result):
         assert result["bpaf"]["max"] >= result["bpaf"]["min"]
+
+
+# ---------------------------------------------------------------------------
+# Regression – edition page has brackets; sub-page linked from it does NOT
+# ---------------------------------------------------------------------------
+
+class TestEditionHasBracketsSubpageDoesNot:
+    """Regression: parse() must succeed when the edition page itself has the
+    federal bracket table, even if a TOC link on that page points to a sub-page
+    that does NOT contain bracket data.
+
+    Before the fix, parse() always parsed soup_doc (the sub-page), which raised
+    ValueError when the sub-page was a topic/navigation page without tables.
+    The fix makes parse() try soup_edition first and only fall back to soup_doc
+    when the edition has no bracket data.
+    """
+
+    def test_parse_succeeds_using_edition_page(self):
+        """parse() must return valid tax_brackets from the edition page."""
+        from unittest.mock import MagicMock, patch
+        import cra_feed.parsers.t4127 as t4127_mod
+
+        index_html = (FIXTURES_DIR / "t4127_index.html").read_text(encoding="utf-8")
+        # Edition page has brackets AND a link to a computer-programs sub-page.
+        edition_html = (
+            FIXTURES_DIR / "t4127_edition_with_brackets_and_link.html"
+        ).read_text(encoding="utf-8")
+        # Sub-page that the TOC link resolves to — it has NO bracket data.
+        subpage_html = (FIXTURES_DIR / "t4127_federal_no_table.html").read_text(
+            encoding="utf-8"
+        )
+
+        session = MagicMock()
+
+        def _fake_get(url, **kwargs):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            if url == t4127_mod.T4127_INDEX_URL:
+                resp.text = index_html
+            elif "computer-programs" in url:
+                resp.text = subpage_html
+            else:
+                resp.text = edition_html
+            return resp
+
+        session.get.side_effect = _fake_get
+
+        with patch("cra_feed.parsers.t4127.time.sleep"):
+            result = t4127_mod.parse(session=session)
+
+        assert result["tax_brackets"], "tax_brackets must not be empty"
+        assert len(result["tax_brackets"]) == 5
+        assert result["tax_brackets"][-1]["up_to"] is None, "top bracket up_to must be None"
+        assert result["k1_rate"] == pytest.approx(0.15, abs=1e-4)
+        assert result["bpaf"]["max"] == pytest.approx(16_129.0, abs=1.0)
+
+    def test_parse_still_uses_subpage_when_edition_has_no_brackets(self):
+        """When the edition page is a TOC (no brackets), parse() must still
+        fall back to the sub-page as before.  This ensures the existing
+        routing for the TOC-edition case is not broken."""
+        from unittest.mock import MagicMock, patch
+        import cra_feed.parsers.t4127 as t4127_mod
+
+        index_html = (FIXTURES_DIR / "t4127_index.html").read_text(encoding="utf-8")
+        # Edition page is a plain TOC with no bracket tables.
+        edition_html = (FIXTURES_DIR / "t4127_edition.html").read_text(encoding="utf-8")
+        # Sub-page holds the real bracket data.
+        doc_html = (FIXTURES_DIR / "t4127_real_jan_2026.html").read_text(encoding="utf-8")
+
+        session = MagicMock()
+
+        def _fake_get(url, **kwargs):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            if url == t4127_mod.T4127_INDEX_URL:
+                resp.text = index_html
+            elif "computer-programs" in url:
+                resp.text = doc_html
+            else:
+                resp.text = edition_html
+            return resp
+
+        session.get.side_effect = _fake_get
+
+        with patch("cra_feed.parsers.t4127.time.sleep"):
+            result = t4127_mod.parse(session=session)
+
+        assert result["tax_brackets"], "tax_brackets must not be empty"
+        assert len(result["tax_brackets"]) == 5
+        assert result["tax_brackets"][-1]["up_to"] is None

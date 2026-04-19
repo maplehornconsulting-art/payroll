@@ -1,8 +1,11 @@
 name: Scrape CRA & Publish Feed
 
 on:
-  schedule:
-    - cron: "0 6 * * *"   # daily at 06:00 UTC
+  # schedule disabled — scraper runs locally on Windows via scripts/run_scraper.ps1
+  # to avoid canada.ca bot-protection blocking datacenter IPs (GitHub-hosted runners).
+  # Re-enable by uncommenting the two lines below:
+  # schedule:
+  #   - cron: "0 6 * * *"   # daily at 06:00 UTC
   workflow_dispatch:        # manual trigger
   push:
     branches: [main]

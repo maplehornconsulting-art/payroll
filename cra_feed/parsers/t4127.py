@@ -427,7 +427,12 @@ def _parse_bpaf(soup: BeautifulSoup, k1_rate: float) -> dict:
         v = all_amounts.pop()
         return {"max": v, "min": v}
 
-    logger.warning("Could not parse BPAF from T4127 HTML; using K1-based fallback")
+    logger.warning(
+        "Could not parse BPAF from T4127 HTML — no BPA dollar amounts found in the "
+        "plausible range ($%.0f–$%.0f). The T4127 document structure may have changed.",
+        BPA_MIN_PLAUSIBLE,
+        BPA_MAX_PLAUSIBLE,
+    )
     raise ValueError("Could not parse BPAF (basic personal amount) from T4127 HTML")
 
 

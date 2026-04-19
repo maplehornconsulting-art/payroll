@@ -287,6 +287,55 @@ class TestEiParser:
 
 
 # ---------------------------------------------------------------------------
+# CPP2 fallback test
+# ---------------------------------------------------------------------------
+
+class TestCppFallback:
+    """Tests for CPP2 fallback when data is missing."""
+
+    def test_cpp2_fallback_when_no_cpp2_table(self):
+        """parse() should warn and return zeros when CPP2 data is absent."""
+        import logging
+        from unittest.mock import MagicMock
+        from cra_feed.parsers import cpp_ei
+
+        # Build a session that returns CPP HTML for CPP URL,
+        # and EI HTML for EI URL.
+        cpp_html = _read_fixture("cpp_page.html")
+        ei_html = _read_fixture("ei_page.html")
+
+        # HTML with no CPP2 table — strip the CPP2 table from the fixture
+        cpp_html_no_cpp2 = cpp_html.replace(
+            "CPP2", "IGNORED"
+        ).replace("yampe", "ignored").replace("YAMPE", "IGNORED").replace(
+            "additional maximum", "IGNORED"
+        )
+
+        session = MagicMock()
+
+        def _fake_get(url, **kwargs):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            if "cpp" in url.lower():
+                resp.text = cpp_html_no_cpp2
+            elif "ei" in url.lower():
+                resp.text = ei_html
+            else:
+                resp.text = "<html/>"
+            return resp
+
+        session.get.side_effect = _fake_get
+
+        with patch("cra_feed.parsers.cpp_ei._current_year", return_value=2026), \
+             patch("cra_feed.parsers.cpp_ei.time.sleep"):
+            result = cpp_ei.parse(session)
+
+        cpp2 = result["cpp2"]
+        assert cpp2["rate"] == 0.0
+        assert cpp2["yampe"] == 0
+
+
+# ---------------------------------------------------------------------------
 # Number parsing helper tests
 # ---------------------------------------------------------------------------
 

@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import base64
 import calendar
+import csv
+import io
+import logging
 from datetime import date, timedelta
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+
+_logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Business-day helper
@@ -351,16 +357,11 @@ class L10nCaRemittance(models.Model):
         }
 
     def action_export_pd7a_csv(self):
-        """Export a PD7A-compatible CSV file.
-
+        """Export a PD7A-compatible CSV file."""
         # DRAFT FORMAT — verify against CRA T4127 Appendix C spec before production use.
         # Columns: BN, period_start, period_end, fed_tax, cpp_total, ei_total,
         #          gross_payroll, employee_count
-        """
         self.ensure_one()
-        import base64
-        import io
-        import csv
 
         config = self.env['l10n.ca.remittance.config'].search(
             [('company_id', '=', self.company_id.id)], limit=1

@@ -1,7 +1,11 @@
 # Part of MHC. See LICENSE file for full copyright and licensing details.
 
+import logging
+
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+
+_logger = logging.getLogger(__name__)
 
 
 class L10nCaRemittancePaymentWizard(models.TransientModel):
@@ -139,6 +143,4 @@ class L10nCaRemittancePaymentWizard(models.TransientModel):
             except (UserError, ValueError) as exc:
                 # Reconciliation is best-effort; log but don't block the payment.
                 # Common causes: lines already reconciled, mismatched currencies.
-                import logging
-                _logger = logging.getLogger(__name__)
                 _logger.warning('Remittance reconciliation skipped: %s', exc)

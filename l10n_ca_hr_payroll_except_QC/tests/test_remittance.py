@@ -1,8 +1,8 @@
 # Part of MHC. See LICENSE file for full copyright and licensing details.
-"""Tests for l10n_ca_hr_payroll_remittance.
+"""Tests for the Canadian payroll remittance workflow in l10n_ca_hr_payroll_except_QC.
 
 These tests are Odoo ORM-level integration tests. They require a running Odoo
-instance with the l10n_ca_hr_payroll_remittance module installed.
+instance with the l10n_ca_hr_payroll_except_QC module installed.
 
 Test IDs map to the acceptance criteria in the problem statement:
   1. Setup — company + config

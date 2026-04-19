@@ -76,10 +76,19 @@ try {
     git add cra_feed/output/
     git diff --cached --quiet
     if ($LASTEXITCODE -ne 0) {
-        git -c user.name="local-scraper" `
-            -c user.email="local-scraper@$env:COMPUTERNAME" `
-            commit -m "chore: update CRA feed (local run) [skip ci]"
-        git push origin main
+        $env:GIT_AUTHOR_NAME    = 'local-scraper'
+        $env:GIT_AUTHOR_EMAIL   = "local-scraper@$env:COMPUTERNAME"
+        $env:GIT_COMMITTER_NAME  = 'local-scraper'
+        $env:GIT_COMMITTER_EMAIL = "local-scraper@$env:COMPUTERNAME"
+        try {
+            git commit -m 'chore: update CRA feed [local run] [skip ci]'
+            git push origin main
+        } finally {
+            $env:GIT_AUTHOR_NAME    = $null
+            $env:GIT_AUTHOR_EMAIL   = $null
+            $env:GIT_COMMITTER_NAME  = $null
+            $env:GIT_COMMITTER_EMAIL = $null
+        }
     } else {
         Write-Host "No changes to commit."
     }

@@ -165,11 +165,12 @@ gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 if version.l10n_ca_cpp_exempt:
     result = 0
 else:
+    periods = payslip._l10n_ca_periods_per_year()
     cpp_rate = payslip._rule_parameter('l10n_ca_cpp_employee_rate')
     cpp_exemption = payslip._rule_parameter('l10n_ca_cpp_basic_exemption')
     cpp_max = payslip._rule_parameter('l10n_ca_cpp_max_contribution')
-    period_exemption = cpp_exemption / 26
-    period_max = cpp_max / 26
+    period_exemption = cpp_exemption / periods
+    period_max = cpp_max / periods
     pensionable = max(gross_amount - period_exemption, 0)
     result = -min(pensionable * cpp_rate, period_max)
         </field>
@@ -189,13 +190,14 @@ gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 if version.l10n_ca_cpp_exempt:
     result = 0
 else:
+    periods = payslip._l10n_ca_periods_per_year()
     cpp_ympe = payslip._rule_parameter('l10n_ca_cpp_ympe')
     cpp2_rate = payslip._rule_parameter('l10n_ca_cpp2_rate')
     cpp2_ceiling = payslip._rule_parameter('l10n_ca_cpp2_ceiling')
     cpp2_max = payslip._rule_parameter('l10n_ca_cpp2_max_contribution')
-    period_ympe = cpp_ympe / 26
-    period_ceiling = cpp2_ceiling / 26
-    period_max = cpp2_max / 26
+    period_ympe = cpp_ympe / periods
+    period_ceiling = cpp2_ceiling / periods
+    period_max = cpp2_max / periods
     if gross_amount &gt; period_ympe:
         cpp2_pensionable = min(gross_amount, period_ceiling) - period_ympe
         result = -min(cpp2_pensionable * cpp2_rate, period_max)
@@ -218,11 +220,12 @@ gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 if version.l10n_ca_ei_exempt:
     result = 0
 else:
+    periods = payslip._l10n_ca_periods_per_year()
     ei_rate = payslip._rule_parameter('l10n_ca_ei_employee_rate')
     ei_max_insurable = payslip._rule_parameter('l10n_ca_ei_max_insurable')
     ei_max_premium = payslip._rule_parameter('l10n_ca_ei_max_premium')
-    period_max_insurable = ei_max_insurable / 26
-    period_max_premium = ei_max_premium / 26
+    period_max_insurable = ei_max_insurable / periods
+    period_max_premium = ei_max_premium / periods
     insurable = min(gross_amount, period_max_insurable)
     result = -min(insurable * ei_rate, period_max_premium)
         </field>
@@ -242,7 +245,8 @@ gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 rrsp = abs(result_rules.get('RRSP', {}).get('total', 0))
 union = abs(result_rules.get('UNION_DUES', {}).get('total', 0))
 taxable_per_period = gross_amount - rrsp - union
-annual_income = taxable_per_period * 26
+periods = payslip._l10n_ca_periods_per_year()
+annual_income = taxable_per_period * periods
 
 fed_brackets = [
     (payslip._rule_parameter('l10n_ca_fed_bracket_1'), payslip._rule_parameter('l10n_ca_fed_rate_1')),
@@ -277,7 +281,7 @@ for bracket, rate in fed_brackets:
 credit = fed_bpa * fed_brackets[0][1]
 annual_tax = max(tax - credit, 0)
 additional = version.l10n_ca_additional_tax or 0
-result = -(annual_tax / 26 + additional)
+result = -(annual_tax / periods + additional)
         </field>
     </record>
 
@@ -295,7 +299,8 @@ gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 rrsp = abs(result_rules.get('RRSP', {}).get('total', 0))
 union = abs(result_rules.get('UNION_DUES', {}).get('total', 0))
 taxable_per_period = gross_amount - rrsp - union
-annual_income = taxable_per_period * 26
+periods = payslip._l10n_ca_periods_per_year()
+annual_income = taxable_per_period * periods
 
 # Get province from employee record (falls back to ON)
 province = employee.l10n_ca_province_id.code or 'ON'
@@ -347,7 +352,7 @@ for s in cfg['st']:
         surtax += (basic_provincial_tax - s[0]) * s[1]
 
 total_provincial_tax = basic_provincial_tax + surtax
-result = -(total_provincial_tax / 26)
+result = -(total_provincial_tax / periods)
         </field>
     </record>
 
@@ -369,7 +374,8 @@ gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 rrsp = abs(result_rules.get('RRSP', {}).get('total', 0))
 union = abs(result_rules.get('UNION_DUES', {}).get('total', 0))
 taxable_per_period = gross_amount - rrsp - union
-annual_income = taxable_per_period * 26
+periods = payslip._l10n_ca_periods_per_year()
+annual_income = taxable_per_period * periods
 
 ohp = 0
 if annual_income &lt;= 20000:
@@ -385,7 +391,7 @@ elif annual_income &lt;= 200000:
 else:
     ohp = 900
 
-result = -(ohp / 26)
+result = -(ohp / periods)
         </field>
     </record>
 

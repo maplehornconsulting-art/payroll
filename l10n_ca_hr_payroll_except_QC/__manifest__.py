@@ -11,7 +11,7 @@
         'hr_payroll_holidays',
     ],
     'auto_install': False,
-    'version': '19.0.1.2',
+    'version': '19.0.1.3',
     'description': """
 Canada Payroll Rules.
 =====================
@@ -35,6 +35,7 @@ Canada Payroll Rules.
     * T4A Slip (manual entry for pension/annuity/other income)
     * T4A Summary with CRA XML Export
     * Record of Employment (ROE) with XML Export
+    * Period-aware salary rules (weekly / bi-weekly / semi-monthly / monthly / quarterly / annually)
     """,
     'data': [
         'security/ir.model.access.csv',

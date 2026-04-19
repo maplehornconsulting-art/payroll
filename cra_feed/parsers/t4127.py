@@ -445,11 +445,12 @@ def _parse_brackets_from_ul(soup: BeautifulSoup) -> list[dict]:
     Secondary (fallback): scan all <ul>/<ol> for lists whose items all match
     the bracket pattern; accept if at least 4 items match.
     """
-    # Primary: look for the lead-in sentence, then take the next <ul>/<ol>
+    # Primary: look for the lead-in sentence, then take the next <ul>/<ol>.
+    # Use find_all_next with a limit to avoid scanning the full document.
     for p in soup.find_all(["p", "li", "div"]):
         text = " ".join(p.get_text().split()).lower()
         if "tax rates" in text and "as follows" in text:
-            for sib in p.find_all_next():
+            for sib in p.find_all_next(limit=15):
                 if sib.name in ("ul", "ol"):
                     brackets = _parse_ul_bracket_items(sib)
                     if brackets:

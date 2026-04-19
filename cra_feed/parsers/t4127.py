@@ -851,19 +851,18 @@ def _parse_one_province(soup: BeautifulSoup, prov_name: str, code: str) -> dict 
         "provincial income tax rates",
         "tax rates",
     ]
-    table, _strategy, _heading = _find_table_after_heading_or_fingerprint(
-        section_soup,
-        prov_heading_candidates,
-        _score_bracket_table,
-    )
+    # 2026+ format: provincial brackets in bulleted-list form (try first)
+    brackets: list[dict] = _parse_brackets_from_ul(section_soup)
 
-    brackets: list[dict] = []
-    if table is not None:
-        brackets = _parse_bracket_table(table)
-
-    # 2026+ format: provincial brackets in bulleted-list form
+    # Legacy table-based format
     if not brackets:
-        brackets = _parse_brackets_from_ul(section_soup)
+        table, _strategy, _heading = _find_table_after_heading_or_fingerprint(
+            section_soup,
+            prov_heading_candidates,
+            _score_bracket_table,
+        )
+        if table is not None:
+            brackets = _parse_bracket_table(table)
 
     # Fallback: scan all tables in the section (preserves original behaviour)
     if not brackets:

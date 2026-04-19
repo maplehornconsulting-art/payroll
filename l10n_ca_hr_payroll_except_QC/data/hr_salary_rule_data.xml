@@ -460,4 +460,11 @@ ei_employer_mult = payslip._rule_parameter('l10n_ca_ei_employer_multiplier')
 result = -result_rules.get('EI_EE', {}).get('total', 0) * ei_employer_mult
         </field>
     </record>
+
+    <!-- Copy all rules from the hourly structure into the salaried structure.
+         This function is idempotent: rules that already exist in the target
+         (matched by code) are skipped, so upgrades never create duplicates. -->
+    <function model="hr.payroll.structure" name="_l10n_ca_clone_rules_to_salaried">
+        <value model="hr.payroll.structure" eval="[ref('l10n_ca_hr_payroll_except_QC.hr_payroll_structure_ca_employee_salary'), ref('l10n_ca_hr_payroll_except_QC.hr_payroll_structure_ca_employee_salary_salaried')]"/>
+    </function>
 </odoo>

@@ -5,7 +5,7 @@ from . import wizard
 
 
 def _post_init_hook(env):
-    """Archive default salary rules auto-added to Canadian structure.
+    """Archive default salary rules auto-added to Canadian structures.
 
     When hr_payroll creates a new structure, it automatically generates
     default rules (BASIC, GROSS, NET, etc.). Since this module defines
@@ -17,17 +17,23 @@ def _post_init_hook(env):
         'l10n_ca_hr_payroll.hr_payroll_structure_ca_employee_salary',
         raise_if_not_found=False,
     )
-    # Also target our own module's structure
-    own_structure = env.ref(
+    # Target both our hourly and salaried structures
+    own_hourly = env.ref(
         'l10n_ca_hr_payroll_except_QC.hr_payroll_structure_ca_employee_salary',
+        raise_if_not_found=False,
+    )
+    own_salaried = env.ref(
+        'l10n_ca_hr_payroll_except_QC.hr_payroll_structure_ca_employee_salary_salaried',
         raise_if_not_found=False,
     )
 
     structure_ids = []
     if ca_structure:
         structure_ids.append(ca_structure.id)
-    if own_structure:
-        structure_ids.append(own_structure.id)
+    if own_hourly:
+        structure_ids.append(own_hourly.id)
+    if own_salaried:
+        structure_ids.append(own_salaried.id)
 
     if not structure_ids:
         return

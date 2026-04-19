@@ -778,20 +778,36 @@ def parse(session=None, debug_dir=None) -> dict:
             effective_date,
         )
 
-    # 6. Federal data (required — raises if missing)
+    # 6. Federal data (required — raises if missing).
+    #    Try the edition page first: when t4127-jan.html already contains the
+    #    bracket tables, parsing it directly is more reliable than following a
+    #    TOC link that might land on a topic page without bracket data.
+    #    Fall back to soup_doc (the linked sub-page) only when the edition page
+    #    itself has no recognizable federal bracket table.
+    _data_soup: BeautifulSoup
+    _data_html: str
     try:
-        federal = _parse_federal(soup_doc, source_url=doc_url)
-    except Exception:
-        if debug_dir is not None:
-            from pathlib import Path as _Path
-            debug_path = _Path(debug_dir) / "t4127.html"
-            debug_path.parent.mkdir(parents=True, exist_ok=True)
-            debug_path.write_text(doc_html, encoding="utf-8")
-            logger.info("Debug HTML written to %s", debug_path)
-        raise
+        federal = _parse_federal(soup_edition, source_url=edition_url)
+        _data_soup = soup_edition
+        _data_html = edition_html
+    except ValueError:
+        # Edition page has no bracket data; try the (possibly different) sub-page.
+        try:
+            federal = _parse_federal(soup_doc, source_url=doc_url)
+            _data_soup = soup_doc
+            _data_html = doc_html
+        except Exception:
+            if debug_dir is not None:
+                from pathlib import Path as _Path
+                debug_path = _Path(debug_dir) / "t4127.html"
+                debug_path.parent.mkdir(parents=True, exist_ok=True)
+                debug_path.write_text(doc_html, encoding="utf-8")
+                logger.info("Debug HTML written to %s", debug_path)
+            raise
 
-    # 7. Provincial data (best-effort)
-    provinces = _parse_provinces(soup_doc)
+    # 7. Provincial data (best-effort) — use the same soup that held the
+    #    federal bracket data so both come from the same source document.
+    provinces = _parse_provinces(_data_soup)
     if not provinces:
         logger.warning(
             "T4127 parser returned no provincial data — "

@@ -435,6 +435,7 @@ class TestStyleE:
         assert result["tax_brackets"][-1]["up_to"] is None
 
     def test_thresholds(self, result):
+        # 2026 (122nd edition) federal bracket thresholds in CAD
         expected_up_to = [58_523.0, 117_045.0, 181_440.0, 258_482.0, None]
         actual_up_to = [b["up_to"] for b in result["tax_brackets"]]
         assert actual_up_to[:-1] == pytest.approx(expected_up_to[:-1])
@@ -597,6 +598,7 @@ class TestEndToEndDualLinksDisambiguation:
         assert result["tax_brackets"][-1]["up_to"] is None
 
     def test_thresholds(self, result):
+        # 2026 (122nd edition) federal bracket thresholds in CAD
         expected_up_to = [58_523.0, 117_045.0, 181_440.0, 258_482.0, None]
         actual_up_to = [b["up_to"] for b in result["tax_brackets"]]
         assert actual_up_to[:-1] == pytest.approx(expected_up_to[:-1])

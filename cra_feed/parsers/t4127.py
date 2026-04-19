@@ -127,12 +127,12 @@ def _edition_base_url(edition_url: str) -> str:
 
     This is the directory that contains the chapter sub-pages.
     """
-    base = edition_url
-    if base.lower().endswith(".html"):
-        base = base[:-5]  # strip ".html"
-    if not base.endswith("/"):
-        base = base + "/"
-    return base
+    base_url = edition_url
+    if base_url.lower().endswith(".html"):
+        base_url = base_url[:-5]  # strip ".html"
+    if not base_url.endswith("/"):
+        base_url = base_url + "/"
+    return base_url
 
 
 def _synthesise_doc_url(edition_url: str) -> str | None:

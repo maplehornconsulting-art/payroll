@@ -1,6 +1,6 @@
-"""Stub parser for CRA CPP and EI rates.
+"""Real parser for CRA CPP and EI rates pages.
 
-Source URLs (examples — actual page paths may vary):
+Source URLs:
   https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/
   payroll/payroll-deductions-contributions/canada-pension-plan-cpp/
   cpp-contribution-rates-maximums-exemptions.html
@@ -8,11 +8,18 @@ Source URLs (examples — actual page paths may vary):
   https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/
   payroll/payroll-deductions-contributions/employment-insurance-ei/
   ei-premium-rates-maximums.html
-
-TODO: Replace hardcoded values with real BeautifulSoup extraction.
 """
 
 from __future__ import annotations
+
+import logging
+import re
+import time
+from datetime import date
+
+from bs4 import BeautifulSoup
+
+logger = logging.getLogger(__name__)
 
 CPP_SOURCE_URL = (
     "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/"
@@ -27,38 +34,270 @@ EI_SOURCE_URL = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _parse_num(s: str) -> float:
+    """Strip $, commas, % and return float."""
+    return float(s.strip().replace(",", "").replace("$", "").replace("%", "").strip())
+
+
+def _fetch(session, url: str) -> str:
+    logger.info("Fetching %s", url)
+    resp = session.get(url, timeout=30)
+    resp.raise_for_status()
+    time.sleep(1)
+    return resp.text
+
+
+def _current_year() -> int:
+    return date.today().year
+
+
+# ---------------------------------------------------------------------------
+# CPP parser
+# ---------------------------------------------------------------------------
+
+def _col_index(headers: list[str], *keywords: str) -> int | None:
+    """Return the index of the first header that contains all given keywords."""
+    for i, h in enumerate(headers):
+        h_l = h.lower()
+        if all(kw.lower() in h_l for kw in keywords):
+            return i
+    return None
+
+
+def _parse_cpp_page(html: str) -> tuple[dict, dict]:
+    """
+    Parse CPP and CPP2 data from the CRA CPP rates page.
+
+    Returns (cpp_dict, cpp2_dict) for the current/most-recent year.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    year = _current_year()
+
+    cpp: dict = {}
+    cpp2: dict = {}
+
+    for table in soup.find_all("table"):
+        rows = table.find_all("tr")
+        if not rows:
+            continue
+
+        # Extract header row(s)
+        header_texts: list[str] = []
+        data_rows: list = []
+        for row in rows:
+            ths = row.find_all("th")
+            tds = row.find_all("td")
+            if ths and not tds:
+                header_texts = [th.get_text(" ", strip=True) for th in ths]
+            elif tds:
+                data_rows.append(tds)
+
+        if not header_texts or not data_rows:
+            continue
+
+        h_lower = [h.lower() for h in header_texts]
+
+        # Identify which kind of table this is
+        has_year_col = any("year" in h for h in h_lower)
+        has_ympe = any("ympe" in h or "maximum pensionable" in h for h in h_lower)
+        has_yampe = any("yampe" in h or "additional maximum" in h for h in h_lower)
+        has_rate = any("rate" in h or "contribution" in h for h in h_lower)
+        has_max_insurable = any("insurable" in h for h in h_lower)
+
+        if not has_year_col:
+            continue
+
+        year_col = _col_index(h_lower, "year")
+
+        if has_ympe and has_rate and not has_yampe:
+            # CPP1 table
+            ympe_col = _col_index(h_lower, "ympe") or _col_index(h_lower, "maximum pensionable")
+            rate_col = _col_index(h_lower, "rate") or _col_index(h_lower, "contribution rate")
+            exemption_col = _col_index(h_lower, "exemption")
+
+            for tds in data_rows:
+                if year_col is None or year_col >= len(tds):
+                    continue
+                cell_year_text = tds[year_col].get_text(strip=True)
+                # Match year or "current year" / "2026" etc.
+                try:
+                    row_year = int(re.search(r"\d{4}", cell_year_text).group())
+                except (AttributeError, ValueError):
+                    continue
+                if row_year != year:
+                    continue
+
+                try:
+                    ympe_v = _parse_num(tds[ympe_col].get_text(strip=True)) if ympe_col is not None and ympe_col < len(tds) else None
+                    rate_v = _parse_num(tds[rate_col].get_text(strip=True)) if rate_col is not None and rate_col < len(tds) else None
+                    if rate_v and rate_v > 1:
+                        rate_v /= 100.0
+                    exemption_v = _parse_num(tds[exemption_col].get_text(strip=True)) if exemption_col is not None and exemption_col < len(tds) else 3500.0
+                    if ympe_v and rate_v:
+                        cpp = {
+                            "rate": rate_v,
+                            "ympe": int(ympe_v),
+                            "basic_exemption": int(exemption_v),
+                        }
+                except (ValueError, IndexError):
+                    continue
+
+        elif has_yampe or (has_ympe and has_rate and "second" in " ".join(h_lower)):
+            # CPP2 table (or combined table with YAMPE column)
+            yampe_col = _col_index(h_lower, "yampe") or _col_index(h_lower, "additional maximum")
+            rate_col = _col_index(h_lower, "rate") or _col_index(h_lower, "contribution rate")
+
+            for tds in data_rows:
+                if year_col is None or year_col >= len(tds):
+                    continue
+                try:
+                    row_year = int(re.search(r"\d{4}", tds[year_col].get_text(strip=True)).group())
+                except (AttributeError, ValueError):
+                    continue
+                if row_year != year:
+                    continue
+                try:
+                    yampe_v = _parse_num(tds[yampe_col].get_text(strip=True)) if yampe_col is not None and yampe_col < len(tds) else None
+                    rate_v = _parse_num(tds[rate_col].get_text(strip=True)) if rate_col is not None and rate_col < len(tds) else None
+                    if rate_v and rate_v > 1:
+                        rate_v /= 100.0
+                    if yampe_v and rate_v:
+                        cpp2 = {"rate": rate_v, "yampe": int(yampe_v)}
+                except (ValueError, IndexError):
+                    continue
+
+    return cpp, cpp2
+
+
+# ---------------------------------------------------------------------------
+# EI parser
+# ---------------------------------------------------------------------------
+
+def _parse_ei_page(html: str) -> dict:
+    """
+    Parse EI data from the CRA EI premium rates page.
+
+    Returns ei_dict for the current/most-recent year.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    year = _current_year()
+    ei: dict = {}
+
+    for table in soup.find_all("table"):
+        rows = table.find_all("tr")
+        if not rows:
+            continue
+
+        header_texts: list[str] = []
+        data_rows: list = []
+        for row in rows:
+            ths = row.find_all("th")
+            tds = row.find_all("td")
+            if ths and not tds:
+                header_texts = [th.get_text(" ", strip=True) for th in ths]
+            elif tds:
+                data_rows.append(tds)
+
+        if not header_texts or not data_rows:
+            continue
+
+        h_lower = [h.lower() for h in header_texts]
+        has_year = any("year" in h for h in h_lower)
+        has_insurable = any("insurable" in h for h in h_lower)
+        has_employee_rate = any(
+            ("premium" in h or "rate" in h) and "employee" in h
+            for h in h_lower
+        ) or any("premium rate" in h for h in h_lower)
+
+        if not (has_year and has_insurable):
+            continue
+
+        year_col = _col_index(h_lower, "year")
+        insurable_col = (
+            _col_index(h_lower, "maximum annual insurable")
+            or _col_index(h_lower, "insurable")
+        )
+        rate_col = (
+            _col_index(h_lower, "employee", "rate")
+            or _col_index(h_lower, "employee", "premium")
+            or _col_index(h_lower, "premium rate")
+            or _col_index(h_lower, "rate")
+        )
+
+        for tds in data_rows:
+            if year_col is None or year_col >= len(tds):
+                continue
+            try:
+                row_year = int(re.search(r"\d{4}", tds[year_col].get_text(strip=True)).group())
+            except (AttributeError, ValueError):
+                continue
+            if row_year != year:
+                continue
+            try:
+                max_ins = _parse_num(tds[insurable_col].get_text(strip=True)) if insurable_col is not None and insurable_col < len(tds) else None
+                rate_v = _parse_num(tds[rate_col].get_text(strip=True)) if rate_col is not None and rate_col < len(tds) else None
+                # EI rate is typically expressed as "$X.XX per $100" → divide by 100
+                # or as a percentage → divide by 100
+                if rate_v and rate_v > 1:
+                    rate_v /= 100.0
+                if max_ins and rate_v:
+                    ei = {
+                        "rate": rate_v,
+                        "max_insurable_earnings": int(max_ins),
+                    }
+            except (ValueError, IndexError):
+                continue
+
+    return ei
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 def parse(session=None) -> dict:
-    """Return CPP and EI rate data.
+    """
+    Fetch and parse CRA CPP and EI rate data.
 
     Returns a dict with keys:
-      - cpp:  {"rate": float, "ympe": float, "basic_exemption": float}
-      - cpp2: {"rate": float, "yampe": float}
-      - ei:   {"rate": float, "max_insurable_earnings": float}
+      - cpp:  {"rate": float, "ympe": int, "basic_exemption": int}
+      - cpp2: {"rate": float, "yampe": int}
+      - ei:   {"rate": float, "max_insurable_earnings": int}
       - source_urls: list[str]
-
-    TODO: Use `session` to fetch CPP_SOURCE_URL and EI_SOURCE_URL and
-    extract values from the HTML rate tables with BeautifulSoup.
     """
+    import requests as _requests
 
-    # --- STUB VALUES (2026 rates) ---
-    # TODO: Extract CPP employee contribution rate, YMPE, and basic exemption.
-    cpp = {
-        "rate": 0.0595,
-        "ympe": 71300.0,
-        "basic_exemption": 3500.0,
-    }
+    if session is None:
+        session = _requests.Session()
+        session.headers.update(
+            {
+                "User-Agent": (
+                    "MapleHorn CRA Feed Scraper / contact@maplehornconsulting.com"
+                )
+            }
+        )
 
-    # TODO: Extract CPP2 rate and YAMPE (Year's Additional Maximum Pensionable Earnings).
-    cpp2 = {
-        "rate": 0.04,
-        "yampe": 81900.0,
-    }
+    cpp_html = _fetch(session, CPP_SOURCE_URL)
+    cpp, cpp2 = _parse_cpp_page(cpp_html)
 
-    # TODO: Extract EI employee premium rate and maximum insurable earnings.
-    ei = {
-        "rate": 0.0166,
-        "max_insurable_earnings": 65700.0,
-    }
+    ei_html = _fetch(session, EI_SOURCE_URL)
+    ei = _parse_ei_page(ei_html)
+
+    if not cpp:
+        raise ValueError(
+            f"Could not parse CPP data for year {_current_year()} from {CPP_SOURCE_URL}"
+        )
+    if not ei:
+        raise ValueError(
+            f"Could not parse EI data for year {_current_year()} from {EI_SOURCE_URL}"
+        )
+    if not cpp2:
+        logger.warning("CPP2 data not found; using zeros as placeholder")
+        cpp2 = {"rate": 0.0, "yampe": 0}
 
     return {
         "cpp": cpp,

@@ -5,7 +5,7 @@ Run with:
 
 Writes the following files (relative to the repo root):
     cra_feed/output/v1/ca/latest.json
-    cra_feed/output/v1/ca/<effective_date>.json   e.g. 2026-07-01.json
+    cra_feed/output/v1/ca/<effective_date>.json   e.g. 2026-01-01.json
     cra_feed/output/v1/ca/index.json
 """
 
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import sys
 from datetime import datetime, timezone
@@ -20,7 +21,7 @@ from pathlib import Path
 
 import requests
 
-from cra_feed.parsers import cpp_ei, t4127, td1
+from cra_feed.parsers import cpp_ei, t4127
 from cra_feed.schema import (
     BPAFRange,
     CPP2Data,
@@ -31,6 +32,9 @@ from cra_feed.schema import (
     ProvinceData,
     TaxBracket,
 )
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -85,7 +89,6 @@ def build_feed() -> CRAFeed:
 
     t4127_data = t4127.parse(session)
     cpp_ei_data = cpp_ei.parse(session)
-    td1_data = td1.parse(session)
 
     effective_date: str = t4127_data["effective_date"]
     published_at: str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -93,7 +96,6 @@ def build_feed() -> CRAFeed:
     source_urls = [
         t4127_data["source_url"],
         *cpp_ei_data["source_urls"],
-        td1_data["source_url"],
     ]
 
     federal = FederalData(
@@ -106,13 +108,20 @@ def build_feed() -> CRAFeed:
     cpp2 = CPP2Data(**cpp_ei_data["cpp2"])
     ei = EIData(**cpp_ei_data["ei"])
 
+    # Provincial data comes from the T4127 publication
     provinces = {
         code: ProvinceData(
             bpa=pdata["bpa"],
             tax_brackets=[TaxBracket(**b) for b in pdata["tax_brackets"]],
         )
-        for code, pdata in td1_data["provinces"].items()
+        for code, pdata in t4127_data.get("provinces", {}).items()
     }
+
+    if not provinces:
+        logger.warning(
+            "No provincial data was parsed from the T4127 publication — "
+            "the feed will lack provincial tax brackets."
+        )
 
     # Build the raw dict first so we can compute the checksum.
     raw: dict = {

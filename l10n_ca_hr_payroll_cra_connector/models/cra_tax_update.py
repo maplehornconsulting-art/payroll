@@ -190,4 +190,12 @@ class CraTaxUpdate(models.Model):
         if earlier:
             earlier.write({"state": "superseded"})
         prefix = _("Auto-applied") if auto else _("Applied")
-        self.message_post(body=_("%(prefix)s by %(user)s. %(applied)d line(s) written to hr.rule.parameter.") % {"prefix": prefix, "user": self.env.user.name, "applied": len(self.line_ids.filtered(lambda l: l.selected and l.rule_parameter_xml_id))})
+        applied_count = len(self.line_ids.filtered(lambda l: l.selected and l.rule_parameter_xml_id))
+        self.message_post(
+            body=_(
+                "%(prefix)s by %(user)s. %(applied)d line(s) written to hr.rule.parameter.",
+                prefix=prefix,
+                user=self.env.user.name,
+                applied=applied_count,
+            )
+        )

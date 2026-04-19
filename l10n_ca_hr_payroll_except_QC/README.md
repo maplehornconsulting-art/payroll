@@ -7,7 +7,7 @@
 | **Odoo Edition** | Enterprise (required) |
 | **Minimum Version** | 18.0 |
 | **Python** | 3.10+ |
-| **Dependencies** | `hr_payroll`, `hr_work_entry_holidays`, `hr_payroll_holidays` |
+| **Dependencies** | `hr_payroll`, `hr_payroll_account`, `l10n_ca`, `hr_work_entry_holidays`, `hr_payroll_holidays` |
 
 ## Short Description
 
@@ -148,6 +148,64 @@ BASIC (wage) → GROSS (+ OT, Bonus, Commission)
 
 ---
 
+## Accounting Integration
+
+This module integrates with **Odoo Accounting** (`hr_payroll_account`).
+When a payslip is confirmed, a balanced `account.move` is created in the
+**Salary Journal** (`SAL`).
+
+### Canadian GL Accounts
+
+The following accounts are created automatically on install (one set per
+Canadian company):
+
+| Code | Name | Type |
+|---|---|---|
+| 2310 | CRA Source Deductions Payable — Federal Income Tax | Liability |
+| 2320 | CRA Source Deductions Payable — CPP | Liability |
+| 2321 | CRA Source Deductions Payable — CPP2 | Liability |
+| 2330 | CRA Source Deductions Payable — EI | Liability |
+| 2340 | Provincial Income Tax Withheld Payable | Liability |
+| 2350 | Ontario EHT Payable | Liability |
+| 2360 | RRSP Contributions Payable | Liability |
+| 2370 | Union Dues Payable | Liability |
+| 2380 | Net Pay Clearing | Liability |
+| 5410 | Salaries & Wages Expense | Expense |
+| 5420 | CPP Employer Contribution Expense | Expense |
+| 5421 | CPP2 Employer Contribution Expense | Expense |
+| 5430 | EI Employer Premium Expense | Expense |
+
+Accounts 5411 (PTO), 5412 (Sick), 5413 (OT), 5440 (EHT) are created for
+future granular expense tracking / EHT employer rule support.
+
+### CRA PD7A Reconciliation
+
+After the module is installed, the credit balances on accounts 2310–2340
+represent exactly what must be remitted to CRA and the province on your
+PD7A form:
+
+- **2310** → Federal income tax withheld (Line 1)
+- **2320** → CPP — employee + employer contributions (Line 2)
+- **2330** → EI — employee + 1.4× employer premiums (Line 3)
+- **2340** → Provincial income tax + Ontario Health Premium
+
+### Overriding Account Mapping
+
+To use different GL accounts for your company, go to:
+
+> **Payroll → Configuration → Salary Rules** → open a rule → change the
+> **Debit Account** / **Credit Account** fields.
+
+### Quebec Exclusion
+
+This module is `_except_QC` by design.  No QPP, QPIP, HSF, CNESST, or Revenu
+Québec accounts are created here.
+
+See [`docs/ACCOUNTING.md`](docs/ACCOUNTING.md) for the full debit/credit table
+and a worked payslip example.
+
+---
+
 ## Compatibility
 
 | | Version |
@@ -155,7 +213,7 @@ BASIC (wage) → GROSS (+ OT, Bonus, Commission)
 | **Odoo Edition** | Enterprise |
 | **Odoo Version** | 18.0 |
 | **Python** | 3.10+ |
-| **Dependencies** | `hr_payroll`, `hr_work_entry_holidays`, `hr_payroll_holidays` |
+| **Dependencies** | `hr_payroll`, `hr_payroll_account`, `l10n_ca`, `hr_work_entry_holidays`, `hr_payroll_holidays` |
 
 ---
 
@@ -248,6 +306,14 @@ A future `l10n_ca_qc_hr_payroll` module may be developed for Quebec.
 ---
 
 ## Changelog
+
+### v1.4 (April 2026) — Accounting Integration
+- ✅ Added `hr_payroll_account` and `l10n_ca` to module dependencies — confirming a payslip now generates a balanced `account.move` in the Salary Journal
+- ✅ Created 17 Canadian payroll GL accounts (9 liability 2xxx, 8 expense 5xxx) on module install, one set per Canadian company (idempotent)
+- ✅ Created default Salary Journal (code `SAL`, type `general`) per company
+- ✅ Wired `account_debit` / `account_credit` onto 12 salary rules (GROSS, RRSP, UNION_DUES, CPP_EE, CPP2_EE, EI_EE, FED_TAX, PROV_TAX, OHP, CPP_ER, CPP2_ER, EI_ER)
+- ✅ OHP (Ontario Health Premium) credits 2340 Provincial Tax Payable; EHT accounts (5440/2350) created for future employer EHT rule
+- ✅ `_post_init_hook` handles multi-company installs and is fully idempotent on upgrade
 
 ### v1.3 (April 2026)
 - ✅ Read provincial tax config (`PROV_TAX` rule) from `l10n_ca_prov_tax_config` rule parameter so CRA connector updates take effect without a module upgrade; embedded 2026 values serve as fallback

@@ -407,14 +407,23 @@ def _parse_ei_page(html: str) -> dict:
             ("employee", "premium"),
         )
 
+        # Skip the Quebec EI table (lower rate; we want the federal rate).
+        # The Quebec table is identifiable by a caption or nearby heading
+        # containing "Quebec" / "Québec".
+        cap = table.find("caption")
+        cap_text = cap.get_text(" ", strip=True).lower() if cap else ""
+        prev_heading = table.find_previous(["h2", "h3", "h4"])
+        heading_text = prev_heading.get_text(" ", strip=True).lower() if prev_heading else ""
+        context = f"{cap_text} {heading_text}"
+        if "quebec" in context or "québec" in context:
+            continue
+
         for tds in data_rows:
             if _row_year(tds, year_col) != year:
                 continue
             try:
                 max_ins = _cell_float(tds, insurable_col)
                 rate_v = _cell_float(tds, rate_col)
-                # EI rate is typically expressed as "$X.XX per $100" or as a
-                # percentage; values > 1 need dividing by 100
                 if rate_v is not None and rate_v > 1:
                     rate_v /= 100.0
                 if max_ins is not None and rate_v is not None:
@@ -422,8 +431,11 @@ def _parse_ei_page(html: str) -> dict:
                         "rate": rate_v,
                         "max_insurable_earnings": int(max_ins),
                     }
+                    break  # first matching row in this table wins
             except (ValueError, IndexError):
                 continue
+        if ei:
+            break  # first matching table wins
 
     return ei
 

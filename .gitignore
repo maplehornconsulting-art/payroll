@@ -1,5 +1,5 @@
 # CRA feed cache (raw HTML downloads — do not commit)
-cra_feed/cache/
+cra_feed/output/
 
 # Local scraper transcript logs
 cra_feed/_logs/

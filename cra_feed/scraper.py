@@ -95,7 +95,7 @@ def build_feed(debug_dir: Path | None = None) -> CRAFeed:
     published_at: str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     source_urls = [
-        t4127_data["source_url"],
+        *t4127_data["source_urls"],
         *cpp_ei_data["source_urls"],
     ]
 

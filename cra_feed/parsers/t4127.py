@@ -725,20 +725,15 @@ def parse(session=None, debug_dir=None) -> dict:
     index_html = _fetch(session, T4127_INDEX_URL)
     edition_url = _find_edition_url(index_html)
 
-    # 2. Fetch edition page → find document URL
+    # 2. Fetch edition page — federal/provincial bracket tables live here
     edition_html = _fetch(session, edition_url)
+    soup_edition = BeautifulSoup(edition_html, "lxml")
+
+    # 3. Discover the document URL for provenance (may be same as edition page)
     doc_url = _find_document_url(edition_url, edition_html)
 
-    # 3. Fetch the actual formulas document (may be same as edition page)
-    if doc_url != edition_url:
-        doc_html = _fetch(session, doc_url)
-    else:
-        doc_html = edition_html
-
-    soup = BeautifulSoup(doc_html, "lxml")
-
-    # 4. Effective date
-    effective_date = _parse_effective_date(soup)
+    # 4. Effective date — parse from the edition page
+    effective_date = _parse_effective_date(soup_edition)
     if effective_date is None:
         effective_date = date.today().isoformat()
         logger.warning(
@@ -754,23 +749,26 @@ def parse(session=None, debug_dir=None) -> dict:
             from pathlib import Path as _Path
             debug_path = _Path(debug_dir) / "t4127.html"
             debug_path.parent.mkdir(parents=True, exist_ok=True)
-            debug_path.write_text(doc_html, encoding="utf-8")
+            debug_path.write_text(edition_html, encoding="utf-8")
             logger.info("Debug HTML written to %s", debug_path)
         raise
 
     # 6. Provincial data (best-effort)
-    provinces = _parse_provinces(soup)
+    provinces = _parse_provinces(soup_edition)
     if not provinces:
         logger.warning(
             "T4127 parser returned no provincial data — "
             "the document structure may have changed"
         )
 
+    # Deduplicated list: index page + edition page + doc page (often the same as edition)
+    source_urls = list(dict.fromkeys([T4127_INDEX_URL, edition_url, doc_url]))
+
     return {
         "bpaf": federal["bpaf"],
         "k1_rate": federal["k1_rate"],
         "tax_brackets": federal["tax_brackets"],
         "effective_date": effective_date,
-        "source_url": doc_url,
+        "source_urls": source_urls,
         "provinces": provinces,
     }

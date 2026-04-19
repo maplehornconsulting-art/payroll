@@ -149,3 +149,89 @@ class TestNoTable:
         soup = _load("t4127_federal_no_table.html")
         with pytest.raises(ValueError, match="federal tax bracket table"):
             _parse_federal(soup)
+
+
+# ---------------------------------------------------------------------------
+# Regression – parse() must route the edition-page soup to _parse_federal
+# ---------------------------------------------------------------------------
+
+class TestParseEditionRouting:
+    """Regression test for the NameError fix: parse() must use soup_edition.
+
+    Before the fix, parse() called ``_parse_federal(soup_edition, ...)`` but
+    ``soup_edition`` was never defined, causing a NameError at runtime.
+    After the fix, ``soup_edition`` is built from the edition-page HTML and
+    passed (not the index-page soup or any other soup) to ``_parse_federal``.
+    """
+
+    def test_parse_uses_edition_soup_not_index(self):
+        """_parse_federal must receive the edition-page soup, not the index-page soup."""
+        from unittest.mock import MagicMock, patch
+        import cra_feed.parsers.t4127 as t4127_mod
+
+        index_html = (FIXTURES_DIR / "t4127_index.html").read_text(encoding="utf-8")
+        # styleA fixture contains bracket data — it serves as the edition page
+        edition_html = (FIXTURES_DIR / "t4127_federal_brackets_styleA.html").read_text(
+            encoding="utf-8"
+        )
+
+        session = MagicMock()
+
+        def _fake_get(url, **kwargs):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            # The index URL returns the index fixture; any other URL returns edition fixture
+            if url == t4127_mod.T4127_INDEX_URL:
+                resp.text = index_html
+            else:
+                resp.text = edition_html
+            return resp
+
+        session.get.side_effect = _fake_get
+
+        captured_soups: list = []
+        original_parse_federal = t4127_mod._parse_federal
+
+        def _spy(soup, **kwargs):
+            captured_soups.append(soup)
+            return original_parse_federal(soup, **kwargs)
+
+        with patch.object(t4127_mod, "_parse_federal", side_effect=_spy), \
+                patch("cra_feed.parsers.t4127.time.sleep"):
+            result = t4127_mod.parse(session=session)
+
+        # _parse_federal must have been called exactly once
+        assert len(captured_soups) == 1, "_parse_federal should be called exactly once"
+
+        # The soup passed in must NOT match the index-page soup (index has no brackets)
+        index_soup = BeautifulSoup(index_html, "lxml")
+        assert str(captured_soups[0]) != str(index_soup), (
+            "_parse_federal must receive the edition-page soup, not the index-page soup"
+        )
+
+    def test_parse_returns_non_empty_tax_brackets(self):
+        """parse() must return a non-empty tax_brackets list (no NameError)."""
+        from unittest.mock import MagicMock, patch
+        import cra_feed.parsers.t4127 as t4127_mod
+
+        index_html = (FIXTURES_DIR / "t4127_index.html").read_text(encoding="utf-8")
+        edition_html = (FIXTURES_DIR / "t4127_federal_brackets_styleA.html").read_text(
+            encoding="utf-8"
+        )
+
+        session = MagicMock()
+
+        def _fake_get(url, **kwargs):
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            resp.text = index_html if url == t4127_mod.T4127_INDEX_URL else edition_html
+            return resp
+
+        session.get.side_effect = _fake_get
+
+        with patch("cra_feed.parsers.t4127.time.sleep"):
+            result = t4127_mod.parse(session=session)
+
+        assert result["tax_brackets"], "tax_brackets must not be empty"
+        assert len(result["tax_brackets"]) > 0
+        assert result["tax_brackets"][-1]["up_to"] is None, "top bracket up_to must be None"

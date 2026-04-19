@@ -860,6 +860,10 @@ def _parse_one_province(soup: BeautifulSoup, prov_name: str, code: str) -> dict 
     brackets: list[dict] = []
     if table is not None:
         brackets = _parse_bracket_table(table)
+    
+    # 2026+ format: provincial brackets in bulleted-list form
+    if not brackets:
+        brackets = _parse_brackets_from_ul(section_soup)
 
     # Fallback: scan all tables in the section (preserves original behaviour)
     if not brackets:

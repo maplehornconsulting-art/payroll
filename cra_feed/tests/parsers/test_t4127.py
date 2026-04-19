@@ -1,11 +1,12 @@
 """Tests for the T4127 multi-strategy federal bracket locator.
 
-Four fixtures exercise each code path:
+Five fixtures exercise each code path:
 
 * styleA  – heading matches Strategy A candidate #1
             ("Federal income tax rates and income thresholds")
 * styleB  – heading matches Strategy A candidate #4 ("Federal tax rates")
 * styleC  – no matching heading; Strategy B (fingerprint) must succeed
+* styleE  – 2026+ bulleted-list format; Strategy E must succeed
 * no_table – no bracket table at all; ValueError must be raised with the
              source URL and --debug-html hint in the message
 """
@@ -276,7 +277,7 @@ class TestParseEditionRouting:
         assert result["tax_brackets"], "tax_brackets must not be empty"
         assert len(result["tax_brackets"]) == 5
         assert result["tax_brackets"][-1]["up_to"] is None, "top bracket up_to must be None"
-        assert result["k1_rate"] == pytest.approx(0.15, abs=1e-4)
+        assert result["k1_rate"] == pytest.approx(0.14, abs=1e-4)
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +290,7 @@ class TestRealJan2026:
     The real T4127 computer-programs page uses table captions like
     "Table 4.1 Federal income tax rates and income thresholds".
     Strategy D (caption match) must locate the correct table directly.
+    The 2026 (122nd edition) data uses 14% as the lowest federal rate.
     """
 
     @pytest.fixture(scope="class")
@@ -301,8 +303,8 @@ class TestRealJan2026:
     def test_top_bracket_is_none(self, result):
         assert result["tax_brackets"][-1]["up_to"] is None
 
-    def test_k1_rate_is_15_percent(self, result):
-        assert result["k1_rate"] == pytest.approx(0.15, abs=1e-4)
+    def test_k1_rate_is_14_percent(self, result):
+        assert result["k1_rate"] == pytest.approx(0.14, abs=1e-4)
 
     def test_bpaf_has_min_and_max(self, result):
         assert "min" in result["bpaf"]
@@ -402,3 +404,44 @@ class TestEditionHasBracketsSubpageDoesNot:
         assert result["tax_brackets"], "tax_brackets must not be empty"
         assert len(result["tax_brackets"]) == 5
         assert result["tax_brackets"][-1]["up_to"] is None
+
+
+# ---------------------------------------------------------------------------
+# Strategy E – bulleted-list extraction (2026+ format)
+# ---------------------------------------------------------------------------
+
+class TestStyleE:
+    """Strategy E: bulleted-list extraction (2026+ CRA format).
+
+    The 2026 edition presents federal brackets as a <ul> in a "Federal Changes"
+    section rather than an HTML <table>.  Strategy E must locate and parse this
+    list correctly, returning the right rates and thresholds.
+    """
+
+    @pytest.fixture(scope="class")
+    def result(self):
+        return _parse_federal(_load("t4127_federal_brackets_styleE.html"))
+
+    def test_bracket_count(self, result):
+        assert len(result["tax_brackets"]) == 5
+
+    def test_bracket_rates(self, result):
+        expected = [0.14, 0.205, 0.26, 0.29, 0.33]
+        assert [b["rate"] for b in result["tax_brackets"]] == pytest.approx(
+            expected, abs=1e-4
+        )
+
+    def test_top_bracket_is_none(self, result):
+        assert result["tax_brackets"][-1]["up_to"] is None
+
+    def test_thresholds(self, result):
+        expected_up_to = [58_523.0, 117_045.0, 181_440.0, 258_482.0, None]
+        actual_up_to = [b["up_to"] for b in result["tax_brackets"]]
+        assert actual_up_to[:-1] == pytest.approx(expected_up_to[:-1])
+        assert actual_up_to[-1] is None
+
+    def test_bpaf_max(self, result):
+        assert result["bpaf"]["max"] == pytest.approx(16_129.0, abs=1.0)
+
+    def test_bpaf_min(self, result):
+        assert result["bpaf"]["min"] == pytest.approx(14_538.0, abs=1.0)

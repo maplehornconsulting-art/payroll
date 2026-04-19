@@ -401,6 +401,71 @@ _FEDERAL_HEADING_CANDIDATES = [
 
 _FEDERAL_ANCHOR_TOKENS = ["$15,000", "5.05%"]
 
+# Regex for the 2026+ bulleted-list bracket format, e.g.:
+#   "for income under $58,523, the tax rate is 14%"
+#   "for income from $58,523 to $117,045, the tax rate is 20.5%"
+#   "for income of $258,482 and over, the tax rate is 33%"
+_UL_BRACKET_RE = re.compile(
+    r"^for income "
+    r"(?:under \$([\d,]+),|from \$([\d,]+) to \$([\d,]+),|of \$([\d,]+) and over,)"
+    r" the tax rate is ([\d.]+)%",
+    re.I,
+)
+
+
+def _parse_ul_bracket_items(ul) -> list[dict]:
+    """Parse federal bracket items from a <ul> or <ol> element (2026+ format)."""
+    brackets: list[dict] = []
+    for li in ul.find_all("li", recursive=False):
+        text = " ".join(li.get_text().split())
+        m = _UL_BRACKET_RE.match(text)
+        if not m:
+            continue
+        under_thresh, from_low, from_high, over_thresh, rate_str = m.groups()
+        rate = float(rate_str) / 100.0
+        if under_thresh is not None:
+            up_to: float | None = float(under_thresh.replace(",", ""))
+        elif from_high is not None:
+            up_to = float(from_high.replace(",", ""))
+        elif over_thresh is not None:
+            up_to = None
+        else:
+            continue
+        brackets.append({"up_to": up_to, "rate": rate})
+    return brackets
+
+
+def _parse_brackets_from_ul(soup: BeautifulSoup) -> list[dict]:
+    """
+    Strategy E: parse federal tax brackets from a bulleted list (2026+ format).
+
+    Primary: find a paragraph whose text contains "tax rates" and
+    "as follows", then take the next <ul> or <ol>.
+
+    Secondary (fallback): scan all <ul>/<ol> for lists whose items all match
+    the bracket pattern; accept if at least 4 items match.
+    """
+    # Primary: look for the lead-in sentence, then take the next <ul>/<ol>
+    for p in soup.find_all(["p", "li", "div"]):
+        text = " ".join(p.get_text().split()).lower()
+        if "tax rates" in text and "as follows" in text:
+            for sib in p.find_all_next():
+                if sib.name in ("ul", "ol"):
+                    brackets = _parse_ul_bracket_items(sib)
+                    if brackets:
+                        return brackets
+                    break
+                if sib.name in ("h1", "h2", "h3"):
+                    break
+
+    # Secondary: scan all <ul>/<ol> for at least 4 bracket-like items
+    for ul in soup.find_all(["ul", "ol"]):
+        brackets = _parse_ul_bracket_items(ul)
+        if len(brackets) >= 4:
+            return brackets
+
+    return []
+
 
 # ---------------------------------------------------------------------------
 # Federal section
@@ -410,10 +475,12 @@ def _parse_federal(soup: BeautifulSoup, source_url: str = "") -> dict:
     """
     Extract federal income tax brackets, BPAF min/max, and K1 rate.
 
-    Uses a three-strategy locator so minor changes to canada.ca HTML layout do
+    Uses multiple strategies so minor changes to canada.ca HTML layout do
     not cause hard failures:
 
+    * Strategy E – bulleted-list extraction (2026+ format).
     * Strategy A – find a known heading phrase, take the first table after it.
+    * Strategy D – table caption match.
     * Strategy B – score all tables by how bracket-table-like they look; accept
       the highest-scoring one (minimum score 3).
     * Strategy C – anchor on a known dollar/rate token and walk up to a table.
@@ -426,6 +493,14 @@ def _parse_federal(soup: BeautifulSoup, source_url: str = "") -> dict:
             "k1_rate": float,
         }
     """
+    # Strategy E — bulleted list (2026+ format)
+    brackets_ul = _parse_brackets_from_ul(soup)
+    if brackets_ul:
+        logger.info("Federal brackets located via Strategy E (bulleted list)")
+        k1_rate = brackets_ul[0]["rate"]
+        bpaf = _parse_bpaf(soup, k1_rate)
+        return {"tax_brackets": brackets_ul, "bpaf": bpaf, "k1_rate": k1_rate}
+
     table, strategy, heading_text = _find_table_after_heading_or_fingerprint(
         soup,
         _FEDERAL_HEADING_CANDIDATES,

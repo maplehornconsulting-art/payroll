@@ -309,11 +309,19 @@ for bracket, rate in fed_brackets:
 
 credit = fed_bpa * fed_brackets[0][1]
 
-# CRA T4127 K2: non-refundable credit for employee CPP and EI contributions
-# at the lowest federal rate.
-annual_cpp = abs(result_rules.get('CPP_EE', {}).get('total', 0)) * periods
-annual_ei   = abs(result_rules.get('EI_EE',   {}).get('total', 0)) * periods
-annual_cpp2 = abs(result_rules.get('CPP2_EE', {}).get('total', 0)) * periods
+# CRA T4127 K2: non-refundable credit for employee CPP, CPP2, and EI
+# contributions at the lowest federal rate. Uses YTD-aware projected
+# annual contribution so the credit is correct for high earners who
+# hit the annual cap mid-year.
+cpp_max  = payslip._rule_parameter('l10n_ca_cpp_max_contribution')
+cpp2_max = payslip._rule_parameter('l10n_ca_cpp2_max_contribution')
+ei_max   = payslip._rule_parameter('l10n_ca_ei_max_premium')
+annual_cpp  = payslip._l10n_ca_projected_annual_contribution(
+    'CPP_EE',  result_rules.get('CPP_EE',  {}).get('total', 0), cpp_max)
+annual_cpp2 = payslip._l10n_ca_projected_annual_contribution(
+    'CPP2_EE', result_rules.get('CPP2_EE', {}).get('total', 0), cpp2_max)
+annual_ei   = payslip._l10n_ca_projected_annual_contribution(
+    'EI_EE',   result_rules.get('EI_EE',   {}).get('total', 0), ei_max)
 k2 = (annual_cpp + annual_cpp2 + annual_ei) * fed_brackets[0][1]
 
 annual_tax = max(tax - credit - k2, 0)
@@ -397,10 +405,18 @@ prov_credit = cfg['bpa'] * prov_brackets[0][1]
 # K2P — credit for annual CPP and EI at the lowest provincial rate (CRA T4127 §5.6).
 # PROV_TAX (sequence 25) runs after CPP_EE (10), CPP2_EE (11) and EI_EE (15),
 # so result_rules already contains the per-period contributions.
-cpp_ee_per_period  = abs(result_rules.get('CPP_EE',  {}).get('total', 0))
-cpp2_ee_per_period = abs(result_rules.get('CPP2_EE', {}).get('total', 0))
-ei_ee_per_period   = abs(result_rules.get('EI_EE',   {}).get('total', 0))
-k2p = (cpp_ee_per_period + cpp2_ee_per_period + ei_ee_per_period) * periods * prov_brackets[0][1]
+# Uses YTD-aware projected annual contribution so the credit is correct for
+# high earners who hit the annual cap mid-year.
+cpp_max_p  = payslip._rule_parameter('l10n_ca_cpp_max_contribution')
+cpp2_max_p = payslip._rule_parameter('l10n_ca_cpp2_max_contribution')
+ei_max_p   = payslip._rule_parameter('l10n_ca_ei_max_premium')
+annual_cpp_p  = payslip._l10n_ca_projected_annual_contribution(
+    'CPP_EE',  result_rules.get('CPP_EE',  {}).get('total', 0), cpp_max_p)
+annual_cpp2_p = payslip._l10n_ca_projected_annual_contribution(
+    'CPP2_EE', result_rules.get('CPP2_EE', {}).get('total', 0), cpp2_max_p)
+annual_ei_p   = payslip._l10n_ca_projected_annual_contribution(
+    'EI_EE',   result_rules.get('EI_EE',   {}).get('total', 0), ei_max_p)
+k2p = (annual_cpp_p + annual_cpp2_p + annual_ei_p) * prov_brackets[0][1]
 
 basic_provincial_tax = max(tax - prov_credit - k2p, 0)
 

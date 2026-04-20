@@ -246,9 +246,92 @@ and may over-deduct CPP/CPP2/EI relative to the true remaining annual headroom.
 
 ---
 
+## K2 / K2P Non-Refundable Tax Credit Projection
 
+### CRA T4127 reference
 
-To use different GL accounts for a company:
+The CRA Payroll Deductions Formulas (T4127) define **K2** (federal) and **K2P**
+(provincial) non-refundable credits for the employee's CPP, CPP2, and EI
+contributions, applied at the lowest marginal rate in each jurisdiction:
+
+```
+K2  = (annual_CPP + annual_CPP2 + annual_EI) × lowest_federal_rate
+K2P = (annual_CPP + annual_CPP2 + annual_EI) × lowest_provincial_rate
+```
+
+These credits reduce the employee's income-tax source-deduction each period.
+
+### Why naive annualization breaks for high earners
+
+A naïve implementation multiplies the **current-period** contribution by the
+number of periods per year:
+
+```python
+annual_cpp = abs(CPP_EE_this_period) * periods   # ← BUG for high earners
+```
+
+This is correct only when the employee contributes the same amount every period.
+For a **high earner** (e.g. Ontario weekly, $9,625/wk ≈ $500 K/yr) who hits the
+annual CPP cap around week 8:
+
+| Week | CPP_EE | Naïve K2 base | Effect |
+|------|--------|---------------|--------|
+| 1–7  | $568.68 | $568.68 × 52 ≈ $29,571 → capped → $4,230 ✓ | correct |
+| 8    | ~$250   | $250 × 52 = $13,000 → capped → $4,230 ✓ | correct |
+| 9–52 | **$0**  | **$0 × 52 = $0 → K2 = $0** | ❌ credit lost → tax over-withheld |
+
+Weeks 9–52 the employee is **over-withheld** for the remainder of the year
+because the entire CPP non-refundable credit disappears once CPP_EE = $0.
+
+### Fix — `_l10n_ca_projected_annual_contribution`
+
+The helper `HrPayslip._l10n_ca_projected_annual_contribution(code, period_amount, annual_max)`
+computes a **YTD-aware projected annual contribution**:
+
+```
+ytd        = _l10n_ca_ytd_amount(code)       # prior done/paid payslips
+current    = abs(period_amount)              # this period
+remaining  = max(periods − periods_elapsed − 1, 0)
+projected  = ytd + current + remaining × current
+return min(projected, annual_max)
+```
+
+For week 9 (ytd = $4,230, current = $0, remaining = 43):
+
+```
+projected = 4,230 + 0 + 43 × 0 = 4,230 → min(4,230, 4,230) = $4,230 ✓
+```
+
+The credit is preserved at the full annual value even after the cap is consumed.
+
+For week 1 of any high earner (ytd = $0, current = $568.68, remaining = 51):
+
+```
+projected = 0 + 568.68 + 51 × 568.68 = 29,571 → capped at $4,230 ✓
+```
+
+For a low earner who never caps (ytd = 0, current = $67.59, remaining = 51):
+
+```
+projected = 0 + 67.59 + 51 × 67.59 = 3,514 < $4,230 → $3,514 (same as naive) ✓
+```
+
+Low and mid earners are unaffected — their tax is identical to the old formula.
+
+### Implementation
+
+| Helper | Used by |
+|--------|---------|
+| `_l10n_ca_ytd_amount(code)` | CPP_EE, CPP2_EE, EI_EE rules (annual cap enforcement) |
+| `_l10n_ca_projected_annual_contribution(code, period_amount, annual_max)` | FED_TAX (K2), PROV_TAX (K2P) — annual credit projection |
+
+Both helpers are defined on `hr.payslip` in `models/hr_payslip.py`.
+
+The `_l10n_ca_projected_annual_contribution` helper calls `_l10n_ca_ytd_amount`
+internally and also counts prior done/paid payslips via `hr.payslip.search_count`
+to determine `periods_elapsed`.
+
+---
 
 1. **Go to** Payroll → Configuration → Salary Rules
 2. **Filter** by structure "Canadian Employee — Hourly" (or Salaried)

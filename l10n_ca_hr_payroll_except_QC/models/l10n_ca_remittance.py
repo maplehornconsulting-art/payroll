@@ -294,16 +294,50 @@ class L10nCaRemittance(models.Model):
                 rec.due_date and rec.due_date < today and rec.state not in ('paid', 'cancelled')
             )
     def _search_is_late(self, operator, value):
-        """Domain for the non-stored is_late field."""
-        from odoo import fields
+        """Domain for the non-stored is_late field.
+
+        Supports '=', '!=', 'in', 'not in' operators. Odoo 19's domain
+        optimizer normalizes boolean comparisons like ('is_late', '=', True)
+        into ('is_late', 'in', OrderedSet([True])), so any iterable form
+        of value must be handled.
+        """
         today = fields.Date.context_today(self)
-        if operator not in ('=', '!='):
-            raise ValueError(f"Unsupported operator {operator} for is_late")
-        late_domain = [('due_date', '<', today), ('state', 'not in', ('paid', 'cancelled'))]
-        want_late = (operator == '=' and value) or (operator == '!=' and not value)
-        if want_late:
-            return late_domain
-        return ['|', ('due_date', '>=', today), ('state', 'in', ('paid', 'cancelled'))]
+        late_domain = [
+            ('due_date', '<', today),
+            ('state', 'not in', ('paid', 'cancelled')),
+        ]
+        not_late_domain = [
+            '|',
+            ('due_date', '>=', today),
+            ('state', 'in', ('paid', 'cancelled')),
+        ]
+
+        # Normalize 'in' / 'not in' (value may be list/tuple/set/OrderedSet)
+        if operator in ('in', 'not in'):
+            # Coerce any iterable (including OrderedSet) into a plain list
+            if hasattr(value, '__iter__') and not isinstance(value, str):
+                values = list(value)
+            else:
+                values = [value]
+
+            wants_true = any(bool(v) for v in values)
+            wants_false = any(not bool(v) for v in values)
+
+            if operator == 'not in':
+                wants_true, wants_false = not wants_true, not wants_false
+
+            if wants_true and wants_false:
+                return [(1, '=', 1)]   # match all
+            if not wants_true and not wants_false:
+                return [(0, '=', 1)]   # match none
+            return late_domain if wants_true else not_late_domain
+
+        # Legacy '=' / '!=' forms
+        if operator in ('=', '!='):
+            want_late = (operator == '=' and value) or (operator == '!=' and not value)
+            return late_domain if want_late else not_late_domain
+
+        raise ValueError(f"Unsupported operator {operator} for is_late")
 
     # ------------------------------------------------------------------
     # Workflow actions

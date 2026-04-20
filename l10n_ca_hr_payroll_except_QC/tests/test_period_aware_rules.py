@@ -187,20 +187,30 @@ _NS_BPA = 11932.0
 GROSS = 1203.13  # fixed gross used throughout cadence tests
 
 
-def _cpp_ee(gross: float, periods: int) -> float:
-    """Replicate CPP_EE rule logic for the given gross and periods/year."""
+def _cpp_ee(gross: float, periods: int, ytd: float = 0.0) -> float:
+    """Replicate CPP_EE rule logic for the given gross, periods/year, and YTD.
+
+    Uses the CRA-correct annual cumulative cap: the deduction in any period is
+    ``min(period_contribution, annual_max - ytd_contributions_to_date)``.
+    """
     period_exemption = _CPP_EXEMPTION / periods
-    period_max = _CPP_MAX / periods
     pensionable = max(gross - period_exemption, 0.0)
-    return round(-min(pensionable * _CPP_RATE, period_max), 2)
+    period_contribution = pensionable * _CPP_RATE
+    remaining_annual = max(_CPP_MAX - ytd, 0.0)
+    return round(-min(period_contribution, remaining_annual), 2)
 
 
-def _ei_ee(gross: float, periods: int) -> float:
-    """Replicate EI_EE rule logic."""
+def _ei_ee(gross: float, periods: int, ytd: float = 0.0) -> float:
+    """Replicate EI_EE rule logic.
+
+    Applies the per-period MIE insurable cap first, then the annual cumulative
+    premium cap against ytd_ei.
+    """
     period_max_insurable = _EI_MAX_INSURABLE / periods
-    period_max_premium = _EI_MAX_PREMIUM / periods
     insurable = min(gross, period_max_insurable)
-    return round(-min(insurable * _EI_RATE, period_max_premium), 2)
+    period_premium = insurable * _EI_RATE
+    remaining_annual = max(_EI_MAX_PREMIUM - ytd, 0.0)
+    return round(-min(period_premium, remaining_annual), 2)
 
 
 def _progressive_tax(income: float, brackets: list) -> float:
@@ -273,14 +283,31 @@ class TestCppEeCadences:
         assert period_exemption == pytest.approx(291.67, abs=0.01)
         result = _cpp_ee(GROSS, 12)
         pensionable = max(GROSS - period_exemption, 0.0)
-        expected = round(-min(pensionable * _CPP_RATE, _CPP_MAX / 12), 2)
+        period_contribution = pensionable * _CPP_RATE
+        # With ytd=0, capped at full annual max (not annual_max/12).
+        expected = round(-min(period_contribution, _CPP_MAX), 2)
         assert result == expected
 
     def test_cap_respected(self):
-        """CPP is capped at cpp_max / periods regardless of gross."""
+        """First payslip (ytd=0): CPP capped at the full annual max for huge gross."""
         huge_gross = 999999.0
-        result = _cpp_ee(huge_gross, 26)
-        assert abs(result) == pytest.approx(_CPP_MAX / 26, abs=0.01)
+        result = _cpp_ee(huge_gross, 26, ytd=0.0)
+        # Period contribution vastly exceeds annual max → capped at annual max.
+        assert abs(result) == pytest.approx(_CPP_MAX, abs=0.01)
+
+    def test_cap_consumed_by_ytd(self):
+        """When YTD equals annual max, next period contribution is zero."""
+        huge_gross = 999999.0
+        result = _cpp_ee(huge_gross, 26, ytd=_CPP_MAX)
+        assert result == 0.0
+
+    def test_partial_ytd_remaining(self):
+        """When YTD is partially consumed, deduction is limited to remaining headroom."""
+        huge_gross = 999999.0
+        ytd = _CPP_MAX * 0.75
+        result = _cpp_ee(huge_gross, 26, ytd=ytd)
+        remaining = _CPP_MAX - ytd
+        assert abs(result) == pytest.approx(remaining, abs=0.01)
 
 
 class TestEiEeCadences:
@@ -290,13 +317,13 @@ class TestEiEeCadences:
         """Weekly: max_insurable / 52."""
         result = _ei_ee(GROSS, 52)
         expected_insurable = min(GROSS, _EI_MAX_INSURABLE / 52)
-        expected = round(-min(expected_insurable * _EI_RATE, _EI_MAX_PREMIUM / 52), 2)
+        expected = round(-min(expected_insurable * _EI_RATE, _EI_MAX_PREMIUM), 2)
         assert result == expected
 
     def test_biweekly_ei_value(self):
         result = _ei_ee(GROSS, 26)
         expected_insurable = min(GROSS, _EI_MAX_INSURABLE / 26)
-        expected = round(-min(expected_insurable * _EI_RATE, _EI_MAX_PREMIUM / 26), 2)
+        expected = round(-min(expected_insurable * _EI_RATE, _EI_MAX_PREMIUM), 2)
         assert result == expected
 
     def test_weekly_and_biweekly_differ_above_weekly_cap(self):
@@ -312,10 +339,13 @@ class TestEiEeCadences:
         )
 
     def test_cap_not_exceeded(self):
-        """Premium must not exceed annual max / periods for any gross."""
+        """Premium must not exceed annual max for any gross (with ytd=0)."""
         huge_gross = 999999.0
         for periods in (52, 26, 24, 12):
             result = abs(_ei_ee(huge_gross, periods))
+            # Per-period insurable cap limits premiums to ~annual_max/periods,
+            # which is well below the annual max.  With ytd=0 the annual cap
+            # never binds before the per-period insurable cap.
             period_cap = _EI_MAX_PREMIUM / periods
             assert result <= period_cap + 0.01, (
                 f"EI for periods={periods}: {result} exceeds cap {period_cap}"
@@ -416,7 +446,7 @@ class TestNsWeeklyRegression:
             "annually": 1,
         }
         for schedule, expected in cases.items():
-            slip = _FakePayslip(struct_sp=schedule)
+            slip = _FakePayslip(struct_sp=schedule, contract_sp=schedule)
             result = _HrPayslip._l10n_ca_periods_per_year(slip)
             assert result == expected, (
                 f"Expected {expected} periods for '{schedule}', got {result}"

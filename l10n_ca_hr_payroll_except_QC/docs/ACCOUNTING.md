@@ -168,7 +168,85 @@ Total credits  = 1,287.07  ✓
 
 ---
 
-## Overriding Account Mapping Per Company
+## CPP / CPP2 Annual Cap Behaviour
+
+### CRA rule
+
+The Canada Revenue Agency mandates an **annual** (not per-period) maximum
+employee CPP contribution.  The rule for every pay period is:
+
+```
+remaining_annual = max(annual_max − ytd_cpp, 0)
+period_deduction = min(period_contribution, remaining_annual)
+```
+
+where `ytd_cpp` is the sum of confirmed CPP deductions for this employee in
+the current calendar year, across all payslips with state `done` or `paid`
+whose `date_to` is before the current payslip's `date_from`.
+
+### Why this matters
+
+High earners legitimately hit the annual maximum early in the year and then
+make **zero** further CPP contributions for the remainder of the year.  An
+Ontario employee earning $9,625/week (≈ $500K/year) should contribute
+≈ $568.68 on the first payslip (exhausting most of the annual budget) — not
+the per-period smeared amount of ≈ $81.35 (`annual_max ÷ 52`).
+
+Using a per-period cap causes:
+- **Permanent under-deduction** for high earners (each period caps too low).
+- **T4 Box 16 / 16A understated**, which the employee may need to true-up via
+  their personal tax return.
+- **Under-remittance to CRA** on the PD7A, exposing the employer to CRA
+  reassessment plus the 10% penalty under ITA s. 227(9).
+
+The same annual-cap logic applies to CPP2 and to the EI annual premium ceiling.
+
+### Implementation — `_l10n_ca_ytd_amount`
+
+The helper `HrPayslip._l10n_ca_ytd_amount(code)` in
+`models/hr_payslip.py` performs an ORM search for prior payslip lines:
+
+- Same `employee_id`
+- Same calendar year as `self.date_from`
+- Payslip state `in ('done', 'paid')` — draft/cancelled payslips are excluded
+- `payslip_id.date_to < self.date_from` — only payslips that ended before
+  the current payslip starts
+- `salary_rule_id.code == code`
+
+It returns `sum(abs(line.total) for line in lines)`.
+
+Both the salary rule XML (`data/hr_salary_rule_data.xml`) and the Python model
+helper (`_l10n_ca_get_payslip_line_values`) call this method to enforce the
+same cap logic.
+
+### Prior-system YTD import (migration caveat)
+
+If you are migrating from another payroll system **mid-year**, the module has
+no knowledge of contributions already made under the prior system.  Without
+YTD seeding, the first Odoo payslip for each employee will see `ytd = 0`
+and may over-deduct CPP/CPP2/EI relative to the true remaining annual headroom.
+
+**Recommended approach:**
+
+1. For each employee, calculate year-to-date CPP, CPP2, EI, FIT, and PIT
+   contributions made under the prior system up to (but not including) the
+   first Odoo payslip start date.
+2. Create a *synthetic* payslip per employee in Odoo:
+   - Set `date_from` / `date_to` to any period within the same calendar year
+     that ends before the first real payslip's `date_from`.
+   - Manually enter line amounts matching the prior-system YTD totals for
+     CPP_EE, CPP2_EE, EI_EE (and optionally FED_TAX, PROV_TAX).
+   - Confirm/lock the payslip (`state = 'done'`).
+3. From the first real payslip onward, `_l10n_ca_ytd_amount` will pick up the
+   synthetic YTD payslip and apply the correct remaining headroom.
+
+> **Warning:** If you skip this step, the first real payslips after migration
+> will deduct the full remaining annual headroom (potentially a large amount).
+> Always reconcile CPP/EI YTD before processing the first payroll run in Odoo.
+
+---
+
+
 
 To use different GL accounts for a company:
 

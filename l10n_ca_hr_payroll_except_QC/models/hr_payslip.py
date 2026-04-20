@@ -7,6 +7,50 @@ from odoo import api, models
 class HrPayslip(models.Model):
     _inherit = 'hr.payslip'
 
+    def _l10n_ca_ytd_amount(self, code):
+        """Return the year-to-date total (as a positive float) for a salary rule
+        code on prior confirmed payslips in the same calendar year.
+
+        CRA mandates an *annual* (not per-period) contribution maximum for CPP,
+        CPP2, and EI.  Each payslip must cap its contribution at the annual max
+        *minus* what has already been deducted on earlier payslips in the same
+        calendar year.  This method returns the accumulated positive amount so
+        the calling rule can compute the remaining headroom:
+
+            remaining = max(annual_max - ytd, 0)
+            deduction = min(period_contribution, remaining)
+
+        Search criteria:
+          - Same employee as ``self``.
+          - Same calendar year as ``self.date_from``.
+          - Payslip state in ``('done', 'paid')`` — draft/cancelled slips are
+            excluded so only locked, remitted payslips count.
+          - ``payslip_id.date_to < self.date_from`` — only payslips that ended
+            *before* the current payslip's start date.
+          - ``salary_rule_id.code == code``.
+          - Excludes the current payslip itself (relevant when the payslip is
+            being re-computed after confirmation).
+
+        Args:
+            code (str): Salary rule code, e.g. ``'CPP_EE'``, ``'EI_EE'``.
+
+        Returns:
+            float: Sum of ``abs(line.total)`` for all matching lines, 0.0 if none.
+        """
+        self.ensure_one()
+        year = self.date_from.year
+        domain = [
+            ('employee_id', '=', self.employee_id.id),
+            ('payslip_id.state', 'in', ('done', 'paid')),
+            ('payslip_id.date_to', '<', self.date_from),
+            ('payslip_id.date_from', '>=', f'{year}-01-01'),
+            ('salary_rule_id.code', '=', code),
+        ]
+        if self.id:
+            domain.append(('payslip_id.id', '!=', self.id))
+        lines = self.env['hr.payslip.line'].search(domain)
+        return sum(abs(line.total) for line in lines)
+
     def _l10n_ca_periods_per_year(self):
         """Return the number of pay periods per year for this payslip's schedule.
 
@@ -123,10 +167,13 @@ class HrPayslip(models.Model):
                 if payslip.version_id.l10n_ca_cpp_exempt:
                     result[code][payslip.id] = {'total': 0}
                     continue
-                pensionable = min(gross_amount, cpp_ympe / periods) - cpp_exemption / periods
-                if pensionable < 0:
-                    pensionable = 0
-                cpp_contribution = min(pensionable * cpp_rate, cpp_max / periods)
+                period_exemption = cpp_exemption / periods
+                pensionable = max(gross_amount - period_exemption, 0)
+                period_contribution = pensionable * cpp_rate
+                # CRA: annual cumulative cap, NOT per-period cap.
+                ytd_cpp = payslip._l10n_ca_ytd_amount('CPP_EE')
+                remaining_annual = max(cpp_max - ytd_cpp, 0)
+                cpp_contribution = min(period_contribution, remaining_annual)
                 result[code][payslip.id] = {'total': round(cpp_contribution, 2)}
 
             elif code == 'CPP2_EE':
@@ -135,10 +182,13 @@ class HrPayslip(models.Model):
                     continue
                 period_ympe = cpp_ympe / periods
                 period_ceiling = cpp2_ceiling / periods
-                period_max = cpp2_max / periods
                 if gross_amount > period_ympe:
                     cpp2_pensionable = min(gross_amount, period_ceiling) - period_ympe
-                    cpp2_contribution = min(cpp2_pensionable * cpp2_rate, period_max)
+                    period_contribution = cpp2_pensionable * cpp2_rate
+                    # CRA: annual cumulative cap, NOT per-period cap.
+                    ytd_cpp2 = payslip._l10n_ca_ytd_amount('CPP2_EE')
+                    remaining_annual = max(cpp2_max - ytd_cpp2, 0)
+                    cpp2_contribution = min(period_contribution, remaining_annual)
                 else:
                     cpp2_contribution = 0
                 result[code][payslip.id] = {'total': round(cpp2_contribution, 2)}
@@ -148,7 +198,11 @@ class HrPayslip(models.Model):
                     result[code][payslip.id] = {'total': 0}
                     continue
                 insurable = min(gross_amount, ei_max_insurable / periods)
-                ei_premium = min(insurable * ei_rate, ei_max_premium / periods)
+                period_premium = insurable * ei_rate
+                # CRA: annual cumulative premium cap.
+                ytd_ei = payslip._l10n_ca_ytd_amount('EI_EE')
+                remaining_annual = max(ei_max_premium - ytd_ei, 0)
+                ei_premium = min(period_premium, remaining_annual)
                 result[code][payslip.id] = {'total': round(ei_premium, 2)}
 
             elif code == 'FED_TAX':

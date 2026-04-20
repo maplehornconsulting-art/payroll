@@ -182,9 +182,12 @@ else:
     cpp_exemption = payslip._rule_parameter('l10n_ca_cpp_basic_exemption')
     cpp_max = payslip._rule_parameter('l10n_ca_cpp_max_contribution')
     period_exemption = cpp_exemption / periods
-    period_max = cpp_max / periods
     pensionable = max(gross_amount - period_exemption, 0)
-    result = -min(pensionable * cpp_rate, period_max)
+    period_contribution = pensionable * cpp_rate
+    # CRA: annual cumulative cap, NOT per-period cap.
+    ytd_cpp = payslip._l10n_ca_ytd_amount('CPP_EE')
+    remaining_annual = max(cpp_max - ytd_cpp, 0)
+    result = -min(period_contribution, remaining_annual)
         </field>
     </record>
 
@@ -212,10 +215,13 @@ else:
     cpp2_max = payslip._rule_parameter('l10n_ca_cpp2_max_contribution')
     period_ympe = cpp_ympe / periods
     period_ceiling = cpp2_ceiling / periods
-    period_max = cpp2_max / periods
     if gross_amount &gt; period_ympe:
         cpp2_pensionable = min(gross_amount, period_ceiling) - period_ympe
-        result = -min(cpp2_pensionable * cpp2_rate, period_max)
+        period_contribution = cpp2_pensionable * cpp2_rate
+        # CRA: annual cumulative cap, NOT per-period cap.
+        ytd_cpp2 = payslip._l10n_ca_ytd_amount('CPP2_EE')
+        remaining_annual = max(cpp2_max - ytd_cpp2, 0)
+        result = -min(period_contribution, remaining_annual)
     else:
         result = 0
         </field>
@@ -242,10 +248,12 @@ else:
     ei_rate = payslip._rule_parameter('l10n_ca_ei_employee_rate')
     ei_max_insurable = payslip._rule_parameter('l10n_ca_ei_max_insurable')
     ei_max_premium = payslip._rule_parameter('l10n_ca_ei_max_premium')
-    period_max_insurable = ei_max_insurable / periods
-    period_max_premium = ei_max_premium / periods
-    insurable = min(gross_amount, period_max_insurable)
-    result = -min(insurable * ei_rate, period_max_premium)
+    insurable = min(gross_amount, ei_max_insurable / periods)
+    period_premium = insurable * ei_rate
+    # CRA: annual cumulative premium cap.
+    ytd_ei = payslip._l10n_ca_ytd_amount('EI_EE')
+    remaining_annual = max(ei_max_premium - ytd_ei, 0)
+    result = -min(period_premium, remaining_annual)
         </field>
     </record>
 

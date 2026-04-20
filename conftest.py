@@ -51,7 +51,14 @@ def _install_odoo_stubs() -> None:
     # odoo.exceptions
     exceptions_mod = ModuleType("odoo.exceptions")
     exceptions_mod.UserError = type("UserError", (Exception,), {})  # type: ignore[attr-defined]
+    exceptions_mod.ValidationError = type("ValidationError", (Exception,), {})  # type: ignore[attr-defined]
     odoo.exceptions = exceptions_mod  # type: ignore[attr-defined]
+
+    # odoo.tools — some models import odoo.tools or odoo.tools.misc
+    tools_mod = MagicMock(name="odoo.tools")
+    odoo.tools = tools_mod  # type: ignore[attr-defined]
+    sys.modules["odoo.tools"] = tools_mod
+    sys.modules["odoo.tools.misc"] = tools_mod
 
     sys.modules["odoo"] = odoo
     sys.modules["odoo.models"] = models_mod
@@ -59,5 +66,27 @@ def _install_odoo_stubs() -> None:
     sys.modules["odoo.api"] = odoo.api
     sys.modules["odoo.exceptions"] = exceptions_mod
 
+    # odoo.tests — needed so that Odoo-style TransactionCase tests can be
+    # imported during pytest collection without a running Odoo instance.
+    tests_mod = ModuleType("odoo.tests")
+    tests_common_mod = ModuleType("odoo.tests.common")
+
+    class TransactionCase:  # noqa: D101
+        pass
+
+    def tagged(*tags):  # noqa: D401
+        def decorator(cls):
+            return cls
+        return decorator
+
+    tests_common_mod.TransactionCase = TransactionCase  # type: ignore[attr-defined]
+    tests_common_mod.tagged = tagged  # type: ignore[attr-defined]
+    tests_mod.common = tests_common_mod  # type: ignore[attr-defined]
+    # Also expose at the top-level odoo.tests namespace for convenience
+    tests_mod.TransactionCase = TransactionCase  # type: ignore[attr-defined]
+    tests_mod.tagged = tagged  # type: ignore[attr-defined]
+
+    sys.modules["odoo.tests"] = tests_mod
+    sys.modules["odoo.tests.common"] = tests_common_mod
 
 _install_odoo_stubs()

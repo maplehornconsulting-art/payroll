@@ -169,11 +169,6 @@ def _make_rule(code: str, rule_id: int, extra_fields: dict | None = None) -> Mag
         fields[fname] = _make_field("many2one")
     rule._fields = fields
 
-    # Default m2o values to empty recordset-like mocks
-    empty_m2o = MagicMock()
-    empty_m2o.id = False
-    empty_m2o.__bool__ = lambda self: False
-
     # Set sensible defaults for functional fields we care about in tests
     rule.sequence = 10
     rule.condition_python = ""
@@ -190,9 +185,7 @@ def _make_rule(code: str, rule_id: int, extra_fields: dict | None = None) -> Mag
             setattr(rule, k, v)
 
     # Make rule[fname] work via __getitem__
-    def _getitem(key):
-        return getattr(rule, key)
-    rule.__getitem__ = lambda self_inner, key: getattr(rule, key)
+    rule.__getitem__ = lambda _, key: getattr(rule, key)
 
     return rule
 

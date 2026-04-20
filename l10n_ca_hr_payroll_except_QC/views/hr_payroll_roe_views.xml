@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+
+    <!-- ROE Form View -->
+    <record id="view_hr_payroll_roe_form" model="ir.ui.view">
+        <field name="name">hr.payroll.roe.form</field>
+        <field name="model">hr.payroll.roe</field>
+        <field name="arch" type="xml">
+            <form string="Record of Employment">
+                <header>
+                    <button name="action_compute" string="Compute" type="object"
+                            invisible="state != 'draft'" class="oe_highlight"/>
+                    <button name="action_export_xml" string="Export XML" type="object"
+                            invisible="state not in ('draft', 'confirmed')" class="oe_highlight"/>
+                    <button name="action_confirm" string="Confirm" type="object"
+                            invisible="state != 'draft'"/>
+                    <button name="action_send" string="Mark as Sent" type="object"
+                            invisible="state != 'confirmed'"/>
+                    <button name="action_draft" string="Reset to Draft" type="object"
+                            invisible="state not in ('confirmed', 'sent')"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,confirmed,sent"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Employee Information">
+                            <field name="employee_id"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                            <field name="serial_number"/>
+                            <field name="pay_period_type"/>
+                            <field name="currency_id" invisible="1"/>
+                        </group>
+                        <group string="Dates">
+                            <field name="first_day_worked"/>
+                            <field name="last_day_paid"/>
+                            <field name="final_pay_period_end"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Reason for Issuing">
+                            <field name="reason_code"/>
+                            <field name="expected_recall"/>
+                            <field name="expected_recall_date"
+                                   invisible="not expected_recall"/>
+                        </group>
+                        <group string="Insurable Totals">
+                            <field name="total_insurable_hours"/>
+                            <field name="total_insurable_earnings"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Insurable Earnings by Period">
+                            <field name="period_ids">
+                                <list editable="bottom">
+                                    <field name="period_number"/>
+                                    <field name="period_start"/>
+                                    <field name="period_end"/>
+                                    <field name="insurable_earnings"/>
+                                    <field name="insurable_hours"/>
+                                    <field name="currency_id" invisible="1"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ROE List View -->
+    <record id="view_hr_payroll_roe_list" model="ir.ui.view">
+        <field name="name">hr.payroll.roe.list</field>
+        <field name="model">hr.payroll.roe</field>
+        <field name="arch" type="xml">
+            <list string="Records of Employment">
+                <field name="name"/>
+                <field name="employee_id"/>
+                <field name="last_day_paid"/>
+                <field name="reason_code"/>
+                <field name="total_insurable_hours"/>
+                <field name="total_insurable_earnings"/>
+                <field name="state"/>
+                <field name="currency_id" invisible="1"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ROE Wizard Form View -->
+    <record id="view_hr_payroll_roe_wizard_form" model="ir.ui.view">
+        <field name="name">hr.payroll.roe.wizard.form</field>
+        <field name="model">hr.payroll.roe.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Create Record of Employment">
+                <group>
+                    <field name="employee_id"/>
+                    <field name="last_day_paid"/>
+                    <field name="reason_code"/>
+                    <field name="pay_period_type"/>
+                </group>
+                <footer>
+                    <button name="action_generate" string="Create ROE" type="object"
+                            class="oe_highlight"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Actions -->
+    <record id="action_hr_payroll_roe" model="ir.actions.act_window">
+        <field name="name">ROE Records</field>
+        <field name="res_model">hr.payroll.roe</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_hr_payroll_roe_wizard" model="ir.actions.act_window">
+        <field name="name">Create ROE</field>
+        <field name="res_model">hr.payroll.roe.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Menu Items -->
+    <menuitem id="menu_hr_payroll_roe"
+              name="ROE Records"
+              parent="menu_hr_payroll_year_end"
+              action="action_hr_payroll_roe"
+              sequence="40"/>
+
+    <menuitem id="menu_hr_payroll_create_roe"
+              name="Create ROE"
+              parent="menu_hr_payroll_year_end"
+              action="action_hr_payroll_roe_wizard"
+              sequence="45"/>
+
+</odoo>

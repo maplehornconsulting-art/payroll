@@ -136,9 +136,35 @@ class HrPayslip(models.Model):
 
     def _get_paid_amount(self):
         self.ensure_one()
-        if self.struct_id.country_id.code == 'CA':
-            total = sum(line.amount for line in self.worked_days_line_ids if line.code in ('WORK100', 'LEAVE90'))
-            return total if total > 0 else super()._get_paid_amount()
+        if self.struct_id.country_id.code != 'CA':
+            return super()._get_paid_amount()
+
+        # Hourly path: sum worked-days lines (WORK100 + LEAVE90)
+        total = sum(
+            line.amount for line in self.worked_days_line_ids
+            if line.code in ('WORK100', 'LEAVE90')
+        )
+        if total > 0:
+            return total
+
+        # Salaried / fallback path
+        base = super()._get_paid_amount() or 0.0
+
+        # Detect monthly wage_type and scale to the actual pay period so that
+        # annualization in FED_TAX/PROV_TAX sees the correct per-period BASIC.
+        wage_type = None
+        if hasattr(self, 'version_id') and self.version_id and 'wage_type' in self.version_id._fields:
+            wage_type = self.version_id.wage_type
+        elif hasattr(self, 'contract_id') and self.contract_id and 'wage_type' in self.contract_id._fields:
+            wage_type = self.contract_id.wage_type
+        if not wage_type and self.struct_id.type_id and 'wage_type' in self.struct_id.type_id._fields:
+            wage_type = self.struct_id.type_id.wage_type
+
+        if wage_type == 'monthly':
+            periods = self._l10n_ca_periods_per_year() or 12
+            return round(base * 12.0 / periods, 2)
+
+        return base
 
     def _l10n_ca_get_payslip_line_values(self, code_list, employee_id=None, compute_sum=False):
         """Compute Canadian payroll line values using rule parameters."""

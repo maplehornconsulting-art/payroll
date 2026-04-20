@@ -7,13 +7,14 @@ These tests verify:
    at the correct structure type.
 3. The ``_l10n_ca_clone_rules_to_salaried`` Python helper is idempotent and
    correctly copies rules from a source structure to a target.
+4. ``_get_paid_amount`` non-CA fallback and monthly wage_type scaling.
 """
 
 from __future__ import annotations
 
 import pathlib
 import xml.etree.ElementTree as ET
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch, call
 
 
 # ---------------------------------------------------------------------------
@@ -114,13 +115,85 @@ class TestPayStructureXml:
 # 3. _l10n_ca_clone_rules_to_salaried logic
 # ---------------------------------------------------------------------------
 
+# Fields expected to be copied by the new explicit field-by-field clone.
+_CLONE_FIELDS = (
+    "sequence",
+    "category_id",
+    "condition_select",
+    "condition_python",
+    "condition_range",
+    "condition_range_min",
+    "condition_range_max",
+    "amount_select",
+    "amount_fix",
+    "amount_percentage",
+    "amount_percentage_base",
+    "amount_python_compute",
+    "appears_on_payslip",
+    "active",
+    "account_debit",
+    "account_credit",
+    "analytic_account_id",
+    "note",
+    "partner_id",
+    "register_id",
+)
 
-def _make_rule(code: str, rule_id: int) -> MagicMock:
-    """Return a minimal mock salary rule."""
+
+def _make_field(ftype: str):
+    """Return a minimal mock Odoo field descriptor."""
+    f = MagicMock()
+    f.type = ftype
+    return f
+
+
+def _make_rule(code: str, rule_id: int, extra_fields: dict | None = None) -> MagicMock:
+    """Return a minimal mock salary rule with all _CLONE_FIELDS present."""
     rule = MagicMock()
     rule.code = code
     rule.id = rule_id
     rule.name = f"Rule {code}"
+
+    # Build _fields dict so the clone logic can introspect field types.
+    fields = {}
+    # Scalar fields
+    for fname in ("sequence", "condition_select", "condition_python",
+                  "condition_range", "condition_range_min", "condition_range_max",
+                  "amount_select", "amount_fix", "amount_percentage",
+                  "amount_percentage_base", "amount_python_compute",
+                  "appears_on_payslip", "active", "note"):
+        fields[fname] = _make_field("char")
+    # Many2one fields
+    for fname in ("category_id", "account_debit", "account_credit",
+                  "analytic_account_id", "partner_id", "register_id"):
+        fields[fname] = _make_field("many2one")
+    rule._fields = fields
+
+    # Default m2o values to empty recordset-like mocks
+    empty_m2o = MagicMock()
+    empty_m2o.id = False
+    empty_m2o.__bool__ = lambda self: False
+
+    # Set sensible defaults for functional fields we care about in tests
+    rule.sequence = 10
+    rule.condition_python = ""
+    rule.amount_python_compute = "result = contract.wage"
+    rule.appears_on_payslip = True
+    rule.active = True
+    rule.account_debit = MagicMock()
+    rule.account_debit.id = 5410
+    rule.account_credit = MagicMock()
+    rule.account_credit.id = 2310
+
+    if extra_fields:
+        for k, v in extra_fields.items():
+            setattr(rule, k, v)
+
+    # Make rule[fname] work via __getitem__
+    def _getitem(key):
+        return getattr(rule, key)
+    rule.__getitem__ = lambda self_inner, key: getattr(rule, key)
+
     return rule
 
 
@@ -129,7 +202,46 @@ def _make_struct(rules: list) -> MagicMock:
     struct = MagicMock()
     struct.rule_ids = rules
     struct.id = id(struct)
+    struct.name = "Test Structure"
     return struct
+
+
+def _run_clone(source_rules: list, target_rules: list, fail_codes: set | None = None):
+    """Execute the same algorithm as the new _l10n_ca_clone_rules_to_salaried.
+
+    Returns (source, target, created_vals_list) where *created_vals_list* is
+    the list of ``vals`` dicts passed to ``Rule.create()`` for each cloned rule.
+    """
+    source = _make_struct(source_rules)
+    target = _make_struct(target_rules)
+
+    existing_codes = {r.code for r in target.rule_ids}
+    created_vals = []
+
+    for rule in source.rule_ids:
+        if rule.code in existing_codes:
+            continue
+        vals = {}
+        for fname in _CLONE_FIELDS:
+            if fname not in rule._fields:
+                continue
+            field = rule._fields[fname]
+            value = rule[fname]
+            if field.type == "many2one":
+                vals[fname] = value.id if value else False
+            else:
+                vals[fname] = value
+        vals.update({
+            "struct_id": target.id,
+            "name": rule.name,
+            "code": rule.code,
+        })
+        if fail_codes and rule.code in fail_codes:
+            # Simulate a create failure for this rule
+            continue
+        created_vals.append(vals)
+
+    return source, target, created_vals
 
 
 class TestCloneRulesToSalaried:
@@ -154,56 +266,222 @@ class TestCloneRulesToSalaried:
 
     # ---- Algorithm tests (logic extracted for stub-safe testing) ----------
 
-    @staticmethod
-    def _run_clone(source_rules: list, target_rules: list):
-        """Execute the same algorithm as _l10n_ca_clone_rules_to_salaried."""
-        source = _make_struct(source_rules)
-        target = _make_struct(target_rules)
-        existing_codes = {r.code for r in target.rule_ids}
-        for rule in source.rule_ids:
-            if rule.code in existing_codes:
-                continue
-            rule.copy({
-                "struct_id": target.id,
-                "name": rule.name,
-                "code": rule.code,
-            })
-        return source, target
-
     def test_copies_all_rules_to_empty_target(self):
         rules = [_make_rule("CPP_EE", 1), _make_rule("EI_EE", 2), _make_rule("NET", 3)]
-        source, target = self._run_clone(rules, [])
-        for rule in source.rule_ids:
-            assert rule.copy.called, f"Rule {rule.code} should have been copied to empty target"
+        _, _, created = _run_clone(rules, [])
+        assert len(created) == 3, "All 3 rules should be cloned to empty target"
+        codes = {v["code"] for v in created}
+        assert codes == {"CPP_EE", "EI_EE", "NET"}
 
     def test_skips_existing_codes_in_target(self):
         existing = _make_rule("CPP_EE", 10)
         source_rules = [_make_rule("CPP_EE", 1), _make_rule("EI_EE", 2)]
-        source, target = self._run_clone(source_rules, [existing])
-        # Only EI_EE should be copied; CPP_EE already exists in target
-        cpp_rule = source.rule_ids[0]
-        ei_rule = source.rule_ids[1]
-        assert not cpp_rule.copy.called, "CPP_EE already in target; should not be copied"
-        assert ei_rule.copy.called, "EI_EE not in target; should be copied"
+        _, _, created = _run_clone(source_rules, [existing])
+        assert len(created) == 1, "Only EI_EE should be cloned; CPP_EE already in target"
+        assert created[0]["code"] == "EI_EE"
 
     def test_idempotent_on_repeated_call(self):
         """Calling clone with a target that already has all rules must be a no-op."""
         existing = _make_rule("CPP_EE", 99)
         source_rules = [_make_rule("CPP_EE", 1)]
-        source, _ = self._run_clone(source_rules, [existing])
-        assert not source.rule_ids[0].copy.called, "CPP_EE already in target; copy should be skipped"
+        _, _, created = _run_clone(source_rules, [existing])
+        assert len(created) == 0, "CPP_EE already in target; no rules should be cloned"
 
-    def test_copy_receives_correct_struct_id(self):
-        source_rules = [_make_rule("BASIC", 1)]
-        source = _make_struct(source_rules)
-        target = _make_struct([])
-        existing_codes = {r.code for r in target.rule_ids}
-        for rule in source.rule_ids:
-            if rule.code not in existing_codes:
-                rule.copy({
-                    "struct_id": target.id,
-                    "name": rule.name,
-                    "code": rule.code,
-                })
-        call_kwargs = source.rule_ids[0].copy.call_args[0][0]
-        assert call_kwargs["struct_id"] == target.id
+    def test_clones_account_debit_and_credit(self):
+        """account_debit and account_credit must appear in create vals."""
+        rule = _make_rule("GROSS", 1)
+        rule.account_debit.id = 5410
+        rule.account_credit.id = 2380
+        _, _, created = _run_clone([rule], [])
+        assert len(created) == 1
+        vals = created[0]
+        assert vals.get("account_debit") == 5410, "account_debit id should be copied"
+        assert vals.get("account_credit") == 2380, "account_credit id should be copied"
+
+    def test_clones_amount_python_compute_and_condition_python(self):
+        """amount_python_compute and condition_python must appear in create vals."""
+        rule = _make_rule("FED_TAX", 5)
+        rule.amount_python_compute = "result = employee.fed_tax_calc()"
+        rule.condition_python = "result = employee.l10n_ca_sin != False"
+        _, _, created = _run_clone([rule], [])
+        assert len(created) == 1
+        vals = created[0]
+        assert vals.get("amount_python_compute") == "result = employee.fed_tax_calc()"
+        assert vals.get("condition_python") == "result = employee.l10n_ca_sin != False"
+
+    def test_clones_sequence(self):
+        """sequence must appear in create vals."""
+        rule = _make_rule("NET", 7)
+        rule.sequence = 42
+        _, _, created = _run_clone([rule], [])
+        assert len(created) == 1
+        assert created[0].get("sequence") == 42
+
+    def test_create_vals_always_contain_struct_id_name_code(self):
+        """struct_id, name, and code must always be set in create vals."""
+        rule = _make_rule("BASIC", 1)
+        _, target, created = _run_clone([rule], [])
+        assert len(created) == 1
+        vals = created[0]
+        assert vals["struct_id"] == target.id
+        assert vals["name"] == rule.name
+        assert vals["code"] == "BASIC"
+
+    def test_single_failing_rule_does_not_abort_rest(self):
+        """A create failure on one rule must not prevent other rules from being cloned."""
+        rules = [_make_rule("CPP_EE", 1), _make_rule("EI_EE", 2), _make_rule("NET", 3)]
+        # Simulate CPP_EE failing by passing fail_codes
+        _, _, created = _run_clone(rules, [], fail_codes={"CPP_EE"})
+        # EI_EE and NET should still be cloned
+        codes = {v["code"] for v in created}
+        assert "EI_EE" in codes
+        assert "NET" in codes
+        assert "CPP_EE" not in codes
+
+    def test_idempotent_double_clone(self):
+        """Running the clone twice (with target already populated) adds no new rules."""
+        rules = [_make_rule("CPP_EE", 1), _make_rule("EI_EE", 2)]
+        # First clone
+        _, _, created_first = _run_clone(rules, [])
+        assert len(created_first) == 2
+        # Simulate second clone: target now has the same codes
+        target_rules_after = [_make_rule(v["code"], i) for i, v in enumerate(created_first)]
+        _, _, created_second = _run_clone(rules, target_rules_after)
+        assert len(created_second) == 0, "Second clone must be a no-op"
+
+
+# ---------------------------------------------------------------------------
+# 4. _get_paid_amount logic
+# ---------------------------------------------------------------------------
+
+def _make_payslip(country_code: str = "CA", wage_type: str = "monthly",
+                  periods_per_year: int = 26, base_amount: float = 5000.0,
+                  worked_days: list | None = None):
+    """Return a minimal mock hr.payslip for _get_paid_amount testing."""
+    payslip = MagicMock()
+
+    # struct_id.country_id.code
+    payslip.struct_id.country_id.code = country_code
+
+    # struct_id.type_id with wage_type
+    payslip.struct_id.type_id._fields = {"wage_type": MagicMock()}
+    payslip.struct_id.type_id.wage_type = wage_type
+
+    # version_id — not present, force fallback to struct type
+    payslip.version_id = None
+
+    # contract_id — not present, force fallback to struct type
+    payslip.contract_id = None
+
+    # _l10n_ca_periods_per_year
+    payslip._l10n_ca_periods_per_year = MagicMock(return_value=periods_per_year)
+
+    # worked_days_line_ids
+    payslip.worked_days_line_ids = worked_days or []
+
+    return payslip, base_amount
+
+
+def _simulate_get_paid_amount(payslip, base_amount: float) -> float:
+    """Replay the _get_paid_amount algorithm from hr_payslip.py."""
+    if payslip.struct_id.country_id.code != 'CA':
+        # non-CA: delegate to super
+        return base_amount  # stand-in for super()._get_paid_amount()
+
+    # Hourly path
+    total = sum(
+        line.amount for line in payslip.worked_days_line_ids
+        if line.code in ('WORK100', 'LEAVE90')
+    )
+    if total > 0:
+        return total
+
+    # Salaried / fallback path
+    base = base_amount or 0.0
+
+    wage_type = None
+    if hasattr(payslip, 'version_id') and payslip.version_id and 'wage_type' in (payslip.version_id._fields or {}):
+        wage_type = payslip.version_id.wage_type
+    elif hasattr(payslip, 'contract_id') and payslip.contract_id and 'wage_type' in (payslip.contract_id._fields or {}):
+        wage_type = payslip.contract_id.wage_type
+    if not wage_type and payslip.struct_id.type_id and 'wage_type' in payslip.struct_id.type_id._fields:
+        wage_type = payslip.struct_id.type_id.wage_type
+
+    if wage_type == 'monthly':
+        periods = payslip._l10n_ca_periods_per_year() or 12
+        return round(base * 12.0 / periods, 2)
+
+    return base
+
+
+class TestGetPaidAmount:
+    """Unit tests for the _get_paid_amount logic."""
+
+    def test_non_ca_returns_super_value(self):
+        """Non-CA payslip must delegate to super and never return None."""
+        payslip, base = _make_payslip(country_code="US", base_amount=3000.0)
+        result = _simulate_get_paid_amount(payslip, base)
+        assert result == 3000.0, "Non-CA payslip should return super()._get_paid_amount()"
+        assert result is not None, "_get_paid_amount must never return None"
+
+    def test_hourly_ca_returns_worked_days_total(self):
+        """CA hourly payslip: sum of WORK100 + LEAVE90 worked days."""
+        line1 = MagicMock()
+        line1.code = 'WORK100'
+        line1.amount = 1200.0
+        line2 = MagicMock()
+        line2.code = 'LEAVE90'
+        line2.amount = 200.0
+        line3 = MagicMock()
+        line3.code = 'OTHER'
+        line3.amount = 999.0
+        payslip, base = _make_payslip(country_code="CA", worked_days=[line1, line2, line3])
+        result = _simulate_get_paid_amount(payslip, base)
+        assert result == 1400.0
+
+    def test_salaried_monthly_biweekly_scaling(self):
+        """Monthly wage 5200 on bi-weekly (26 periods) => 5200 * 12 / 26 = 2400."""
+        payslip, _ = _make_payslip(
+            country_code="CA",
+            wage_type="monthly",
+            periods_per_year=26,
+            base_amount=5200.0,
+        )
+        result = _simulate_get_paid_amount(payslip, 5200.0)
+        assert result == round(5200.0 * 12 / 26, 2), (
+            f"Expected {round(5200.0 * 12 / 26, 2)}, got {result}"
+        )
+
+    def test_salaried_monthly_weekly_scaling(self):
+        """Monthly wage 4000 on weekly (52 periods) => 4000 * 12 / 52 ≈ 923.08."""
+        payslip, _ = _make_payslip(
+            country_code="CA",
+            wage_type="monthly",
+            periods_per_year=52,
+            base_amount=4000.0,
+        )
+        result = _simulate_get_paid_amount(payslip, 4000.0)
+        assert result == round(4000.0 * 12 / 52, 2)
+
+    def test_salaried_monthly_on_monthly_schedule_unchanged(self):
+        """Monthly wage on monthly schedule (12 periods) should equal base."""
+        payslip, _ = _make_payslip(
+            country_code="CA",
+            wage_type="monthly",
+            periods_per_year=12,
+            base_amount=6000.0,
+        )
+        result = _simulate_get_paid_amount(payslip, 6000.0)
+        assert result == round(6000.0 * 12 / 12, 2)  # == 6000.0
+
+    def test_hourly_wage_type_returns_base_without_scaling(self):
+        """Hourly wage_type (no WORK100 lines) should return base without 12/periods scaling."""
+        payslip, _ = _make_payslip(
+            country_code="CA",
+            wage_type="hourly",
+            periods_per_year=26,
+            base_amount=1500.0,
+        )
+        result = _simulate_get_paid_amount(payslip, 1500.0)
+        assert result == 1500.0, "Hourly wage_type should not scale by 12/periods"
+

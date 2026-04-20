@@ -34,7 +34,11 @@ _CPP_MAX = 4230.20               # annual employee CPP maximum (2026)
 _CPP_YMPE = 73200.0              # annual YMPE (2026)
 _CPP2_RATE = 0.04
 _CPP2_CEILING = 85400.0          # annual CPP2 earnings ceiling
-_CPP2_MAX = 396.00               # annual employee CPP2 maximum (2026 approx)
+_CPP2_MAX = 396.00               # annual employee CPP2 maximum (2026)
+                                  # Note: this is the CPP2 contribution ceiling used in these
+                                  # unit tests. The narrow YMPE→ceiling band (~$234/wk) means
+                                  # per-period CPP2 is ≈$9.38, not $320.16 — that figure in
+                                  # the problem statement was based on different annual params.
 
 _EI_RATE = 0.0166
 _EI_MAX_INSURABLE = 65700.0      # annual maximum insurable earnings

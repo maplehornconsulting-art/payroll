@@ -436,7 +436,13 @@ class TestNsWeeklyRegression:
         assert prov_wk != prov_bw, "Weekly PROV_TAX must differ from bi-weekly PROV_TAX"
 
     def test_schedule_periods_mapping(self):
-        """_l10n_ca_periods_per_year returns expected values for key schedules."""
+        """_l10n_ca_periods_per_year returns expected values for key schedules.
+
+        Both ``struct_sp`` and ``contract_sp`` are set to the same value here
+        because the method prefers ``contract_id.schedule_pay`` when it is set.
+        Passing only ``struct_sp`` would leave ``contract_sp`` at the default
+        "bi-weekly", masking the struct-based value.
+        """
         cases = {
             "bi-weekly": 26,
             "weekly": 52,

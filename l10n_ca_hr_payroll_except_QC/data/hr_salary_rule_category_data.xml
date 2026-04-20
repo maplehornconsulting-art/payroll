@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+    <record id="hr_salary_rule_category_ca_cpp" model="hr.salary.rule.category">
+        <field name="name">CPP</field>
+        <field name="code">CPP</field>
+    </record>
+    <record id="hr_salary_rule_category_ca_ei" model="hr.salary.rule.category">
+        <field name="name">EI</field>
+        <field name="code">EI</field>
+    </record>
+    <record id="hr_salary_rule_category_ca_fed_tax" model="hr.salary.rule.category">
+        <field name="name">Federal Tax</field>
+        <field name="code">FED_TAX</field>
+    </record>
+    <record id="hr_salary_rule_category_ca_prov_tax" model="hr.salary.rule.category">
+        <field name="name">Provincial Tax</field>
+        <field name="code">PROV_TAX</field>
+    </record>
+    <record id="hr_salary_rule_category_ca_ohp" model="hr.salary.rule.category">
+        <field name="name">Ontario Health Premium</field>
+        <field name="code">OHP</field>
+    </record>
+    <record id="hr_salary_rule_category_ca_employer" model="hr.salary.rule.category">
+        <field name="name">Employer Contributions</field>
+        <field name="code">EMPLOYER</field>
+    </record>
+    <record id="hr_salary_rule_category_ca_earnings" model="hr.salary.rule.category">
+        <field name="name">Earnings</field>
+        <field name="code">EARN</field>
+        <field name="country_id" ref="base.ca"/>
+    </record>
+</odoo>

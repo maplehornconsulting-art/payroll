@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+    <data noupdate="1">
+
+        <!-- Daily cron: create draft remittances for all CA companies -->
+        <record id="ir_cron_l10n_ca_create_remittances" model="ir.cron">
+            <field name="name">Canadian Payroll — Create Remittances</field>
+            <field name="model_id" ref="model_l10n_ca_remittance"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_create_remittances()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active" eval="True"/>
+            <field name="user_id" ref="base.user_root"/>
+        </record>
+
+    </data>
+</odoo>

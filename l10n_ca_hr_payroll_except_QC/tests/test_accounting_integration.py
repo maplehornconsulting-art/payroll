@@ -196,16 +196,24 @@ class TestSalaryRuleAccountMappings:
 
     # Expected mappings: rule XML ID → (debit_account_ref, credit_account_ref)
     # None means the field should NOT be set (informational rule).
+    #
+    # NOTE on employee deduction rules (negative result):
+    # Odoo's hr_payroll_account swaps account_debit ↔ account_credit when
+    # salary_line.total < 0.  For deduction rules (result = -amount), the
+    # LIABILITY account is therefore stored in account_debit and the clearing
+    # account (2380) in account_credit.  The <!-- Dr / Cr --> comment above
+    # each XML rule describes the *resulting* journal entry direction (after
+    # the sign-based swap), not the literal field assignment.
     EXPECTED_MAPPINGS: dict[str, tuple[str | None, str | None]] = {
         'salary_rule_ca_gross':    ('account_5410', 'account_2380'),
-        'salary_rule_ca_rrsp':     ('account_2380', 'account_2360'),
-        'salary_rule_ca_union':    ('account_2380', 'account_2370'),
-        'salary_rule_ca_cpp_ee':   ('account_2380', 'account_2320'),
-        'salary_rule_ca_cpp2_ee':  ('account_2380', 'account_2321'),
-        'salary_rule_ca_ei_ee':    ('account_2380', 'account_2330'),
-        'salary_rule_ca_fed_tax':  ('account_2380', 'account_2310'),
-        'salary_rule_ca_prov_tax': ('account_2380', 'account_2340'),
-        'salary_rule_ca_ohp':      ('account_2380', 'account_2340'),
+        'salary_rule_ca_rrsp':     ('account_2360', 'account_2380'),
+        'salary_rule_ca_union':    ('account_2370', 'account_2380'),
+        'salary_rule_ca_cpp_ee':   ('account_2320', 'account_2380'),
+        'salary_rule_ca_cpp2_ee':  ('account_2321', 'account_2380'),
+        'salary_rule_ca_ei_ee':    ('account_2330', 'account_2380'),
+        'salary_rule_ca_fed_tax':  ('account_2310', 'account_2380'),
+        'salary_rule_ca_prov_tax': ('account_2340', 'account_2380'),
+        'salary_rule_ca_ohp':      ('account_2340', 'account_2380'),
         'salary_rule_ca_cpp_er':   ('account_5420', 'account_2320'),
         'salary_rule_ca_cpp2_er':  ('account_5421', 'account_2321'),
         'salary_rule_ca_ei_er':    ('account_5430', 'account_2330'),
@@ -259,21 +267,23 @@ class TestSalaryRuleAccountMappings:
     def test_gross_credits_net_pay_clearing(self):
         assert self.rules.get('salary_rule_ca_gross', {}).get('account_credit') == 'account_2380'
 
-    def test_fed_tax_credits_fed_tax_payable(self):
-        assert self.rules.get('salary_rule_ca_fed_tax', {}).get('account_credit') == 'account_2310'
+    def test_fed_tax_liability_in_debit_field(self):
+        # For deduction rules (result < 0), Odoo swaps debit/credit at posting time.
+        # The liability account therefore lives in account_debit; 2380 in account_credit.
+        assert self.rules.get('salary_rule_ca_fed_tax', {}).get('account_debit') == 'account_2310'
 
-    def test_cpp_ee_credits_cpp_payable(self):
-        assert self.rules.get('salary_rule_ca_cpp_ee', {}).get('account_credit') == 'account_2320'
+    def test_cpp_ee_liability_in_debit_field(self):
+        assert self.rules.get('salary_rule_ca_cpp_ee', {}).get('account_debit') == 'account_2320'
 
-    def test_ei_ee_credits_ei_payable(self):
-        assert self.rules.get('salary_rule_ca_ei_ee', {}).get('account_credit') == 'account_2330'
+    def test_ei_ee_liability_in_debit_field(self):
+        assert self.rules.get('salary_rule_ca_ei_ee', {}).get('account_debit') == 'account_2330'
 
-    def test_prov_tax_credits_prov_tax_payable(self):
-        assert self.rules.get('salary_rule_ca_prov_tax', {}).get('account_credit') == 'account_2340'
+    def test_prov_tax_liability_in_debit_field(self):
+        assert self.rules.get('salary_rule_ca_prov_tax', {}).get('account_debit') == 'account_2340'
 
-    def test_ohp_credits_prov_tax_payable(self):
-        """OHP is remitted alongside provincial tax (both go to 2340)."""
-        assert self.rules.get('salary_rule_ca_ohp', {}).get('account_credit') == 'account_2340'
+    def test_ohp_liability_in_debit_field(self):
+        """OHP is remitted alongside provincial tax (both map to 2340)."""
+        assert self.rules.get('salary_rule_ca_ohp', {}).get('account_debit') == 'account_2340'
 
     def test_cpp_er_debits_cpp_er_expense(self):
         assert self.rules.get('salary_rule_ca_cpp_er', {}).get('account_debit') == 'account_5420'
@@ -281,11 +291,11 @@ class TestSalaryRuleAccountMappings:
     def test_ei_er_debits_ei_er_expense(self):
         assert self.rules.get('salary_rule_ca_ei_er', {}).get('account_debit') == 'account_5430'
 
-    def test_ohp_different_from_eht_payable(self):
+    def test_ohp_not_eht_payable(self):
         """OHP (employee deduction) maps to 2340, not 2350 (employer EHT)."""
         ohp = self.rules.get('salary_rule_ca_ohp', {})
-        assert ohp.get('account_credit') != 'account_2350', (
-            "OHP should credit 2340 (provincial tax), not 2350 (employer EHT)"
+        assert ohp.get('account_debit') != 'account_2350', (
+            "OHP should use 2340 (provincial tax), not 2350 (employer EHT)"
         )
 
 

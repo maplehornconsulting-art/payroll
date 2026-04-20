@@ -74,6 +74,14 @@ Net pay day:
 | EI_ER | EI Employer | **5430** EI ER Expense | **2330** EI Payable |
 | *(future)* | EHT Employer | **5440** Ontario EHT Expense | **2350** Ontario EHT Payable |
 
+> **Note on deduction rules (RRSP, UNION_DUES, CPP_EE, CPP2_EE, EI_EE, FED_TAX,
+> PROV_TAX, OHP):** The table above shows the **effective** posting direction in
+> the journal entry.  Because these rules return a *negative* result, Odoo's
+> `hr_payroll_account` bridge swaps the `account_debit`/`account_credit` XML
+> fields at posting time.  Therefore the XML field assignment is the *opposite*
+> of what this table shows — the liability account is in `account_debit` and
+> 2380 is in `account_credit`.  See [Gotcha section](#gotcha-negative-result--account_debitaccount_credit-semantics) below.
+
 > **Note on OHP:** The Ontario Health Premium is an employee-side deduction
 > remitted to the Ontario Ministry of Finance alongside provincial income tax.
 > It therefore credits **2340 Provincial Tax Payable** (not 2350 which is
@@ -193,3 +201,80 @@ To use different GL accounts for a company:
 This module is named `_except_QC` by design.  No QPP, QPIP, HSF, CNESST, or
 Revenu Québec accounts are created.  For Quebec employees, use a separate
 `l10n_ca_qc_hr_payroll` module (not included).
+
+---
+
+## Gotcha: Negative result + account_debit/account_credit semantics
+
+### How Odoo posts salary rules to journal entries
+
+Odoo's `hr_payroll_account` bridge applies the following rule when converting
+a payslip line into `account.move.line` entries:
+
+| `salary_line.total` | Debit side | Credit side |
+|---|---|---|
+| **positive** (`> 0`) | `rule.account_debit` | `rule.account_credit` |
+| **negative** (`< 0`) | `rule.account_credit` | `rule.account_debit` (abs value) |
+
+In other words, **when the formula result is negative, Odoo swaps the two
+account fields**.
+
+### Why this matters for employee deductions
+
+Employee deduction rules (CPP_EE, EI_EE, FED_TAX, PROV_TAX, OHP, RRSP,
+UNION_DUES) all use a negative formula result — for example:
+
+```python
+result = -min(pensionable * cpp_rate, period_max)   # always ≤ 0
+```
+
+To achieve the desired journal entry `Dr 2380 Net Pay Clearing / Cr 2320 CPP Payable`,
+the accounts must be assigned **counter-intuitively**:
+
+| XML field | Account set | Why |
+|---|---|---|
+| `account_debit` | **2320** CPP Payable (liability) | Odoo will *credit* this when result < 0 |
+| `account_credit` | **2380** Net Pay Clearing | Odoo will *debit* this when result < 0 |
+
+The `<!-- Dr 2380 Net Pay Clearing / Cr 2320 CPP Payable -->` comment above each
+rule in `hr_salary_rule_data.xml` describes the **effective journal entry direction**
+(i.e., what you will see in the posted `account.move`), **not** the literal field
+assignment.
+
+### Worked example — CPP_EE, $5 000 bi-weekly, Ontario 2026
+
+1. `CPP_EE.result = -139.28`  (negative — employee CPP contribution)
+2. Odoo sees `total < 0` → uses `account_credit` for debit, `account_debit` for credit
+3. XML has: `account_debit = account_2320`, `account_credit = account_2380`
+4. Posted move lines:
+   ```
+   Dr  2380  Net Pay Clearing    139.28   ← from account_credit field
+   Cr  2320  CPP Payable         139.28   ← from account_debit field
+   ```
+5. **Net effect:** Net Pay Clearing is reduced (the cleared amount will be paid
+   to CRA rather than the employee), and CPP Payable grows by $139.28.
+
+### Employer-side rules are NOT affected
+
+Employer rules (CPP_ER, CPP2_ER, EI_ER) use a **positive** result
+(e.g., `result = -cpp_ee_total` where `cpp_ee_total` is already negative, so
+the double negative gives a positive value).  Odoo does **not** swap accounts
+for positive results, so the field assignment for employer rules is
+straightforward: `account_debit = 5420` (expense), `account_credit = 2320`
+(payable).
+
+### Canonical check
+
+The integration test `tests/test_journal_posting_directions.py` verifies the
+effective posting direction end-to-end.  Run it inside a live Odoo instance
+with this module installed:
+
+```bash
+odoo-bin -c odoo.conf -d mydb --test-enable \
+  --test-tags /l10n_ca_hr_payroll_except_QC:l10n_ca_payroll_accounting
+```
+
+If CPP Payable (2320) ever shows a **debit** entry from a payslip confirmation,
+the `account_debit`/`account_credit` fields on the deduction rule have been
+swapped back to the buggy state.
+

@@ -135,8 +135,8 @@ result = (
         <field name="condition_python">result = inputs.get('RRSP') and inputs['RRSP'].amount &gt; 0</field>
         <field name="amount_select">code</field>
         <!-- Dr 2380 Net Pay Clearing / Cr 2360 RRSP Payable -->
-        <field name="account_debit" ref="account_2380"/>
-        <field name="account_credit" ref="account_2360"/>
+        <field name="account_debit" ref="account_2360"/>
+        <field name="account_credit" ref="account_2380"/>
         <field name="amount_python_compute">
 result = -(inputs['RRSP'].amount if inputs.get('RRSP') else 0)
         </field>
@@ -153,8 +153,8 @@ result = -(inputs['RRSP'].amount if inputs.get('RRSP') else 0)
         <field name="condition_python">result = inputs.get('UNION') and inputs['UNION'].amount &gt; 0</field>
         <field name="amount_select">code</field>
         <!-- Dr 2380 Net Pay Clearing / Cr 2370 Union Dues Payable -->
-        <field name="account_debit" ref="account_2380"/>
-        <field name="account_credit" ref="account_2370"/>
+        <field name="account_debit" ref="account_2370"/>
+        <field name="account_credit" ref="account_2380"/>
         <field name="amount_python_compute">
 result = -(inputs['UNION'].amount if inputs.get('UNION') else 0)
         </field>
@@ -170,8 +170,8 @@ result = -(inputs['UNION'].amount if inputs.get('UNION') else 0)
         <field name="condition_select">none</field>
         <field name="amount_select">code</field>
         <!-- Dr 2380 Net Pay Clearing / Cr 2320 CPP Payable -->
-        <field name="account_debit" ref="account_2380"/>
-        <field name="account_credit" ref="account_2320"/>
+        <field name="account_debit" ref="account_2320"/>
+        <field name="account_credit" ref="account_2380"/>
         <field name="amount_python_compute">
 gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 if version.l10n_ca_cpp_exempt:
@@ -198,8 +198,8 @@ else:
         <field name="condition_select">none</field>
         <field name="amount_select">code</field>
         <!-- Dr 2380 Net Pay Clearing / Cr 2321 CPP2 Payable -->
-        <field name="account_debit" ref="account_2380"/>
-        <field name="account_credit" ref="account_2321"/>
+        <field name="account_debit" ref="account_2321"/>
+        <field name="account_credit" ref="account_2380"/>
         <field name="amount_python_compute">
 gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 if version.l10n_ca_cpp_exempt:
@@ -231,8 +231,8 @@ else:
         <field name="condition_select">none</field>
         <field name="amount_select">code</field>
         <!-- Dr 2380 Net Pay Clearing / Cr 2330 EI Payable -->
-        <field name="account_debit" ref="account_2380"/>
-        <field name="account_credit" ref="account_2330"/>
+        <field name="account_debit" ref="account_2330"/>
+        <field name="account_credit" ref="account_2380"/>
         <field name="amount_python_compute">
 gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 if version.l10n_ca_ei_exempt:
@@ -259,8 +259,8 @@ else:
         <field name="condition_select">none</field>
         <field name="amount_select">code</field>
         <!-- Dr 2380 Net Pay Clearing / Cr 2310 Federal Tax Payable -->
-        <field name="account_debit" ref="account_2380"/>
-        <field name="account_credit" ref="account_2310"/>
+        <field name="account_debit" ref="account_2310"/>
+        <field name="account_credit" ref="account_2380"/>
         <field name="amount_python_compute">
 gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 rrsp = abs(result_rules.get('RRSP', {}).get('total', 0))
@@ -324,8 +324,8 @@ result = -(annual_tax / periods + additional)
         <field name="condition_select">none</field>
         <field name="amount_select">code</field>
         <!-- Dr 2380 Net Pay Clearing / Cr 2340 Provincial Tax Payable -->
-        <field name="account_debit" ref="account_2380"/>
-        <field name="account_credit" ref="account_2340"/>
+        <field name="account_debit" ref="account_2340"/>
+        <field name="account_credit" ref="account_2380"/>
         <field name="amount_python_compute">
 gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 rrsp = abs(result_rules.get('RRSP', {}).get('total', 0))
@@ -423,8 +423,8 @@ result = (province == 'ON')
         <!-- Dr 2380 Net Pay Clearing / Cr 2340 Provincial Tax Payable
              OHP is part of provincial tax obligations and is remitted to
              the Ontario Ministry of Finance alongside PROV_TAX. -->
-        <field name="account_debit" ref="account_2380"/>
-        <field name="account_credit" ref="account_2340"/>
+        <field name="account_debit" ref="account_2340"/>
+        <field name="account_credit" ref="account_2380"/>
         <field name="amount_python_compute">
 gross_amount = result_rules.get('GROSS', {}).get('total', 0)
 rrsp = abs(result_rules.get('RRSP', {}).get('total', 0))

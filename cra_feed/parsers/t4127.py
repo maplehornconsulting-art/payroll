@@ -63,6 +63,18 @@ _FEDERAL_CONTENT_RE = re.compile(
     re.I,
 )
 
+# Regexes for parsing BPAF from the canada.ca formula panel (Strategy 0).
+# Match an <h4> whose text contains the word "BPAF" (not BPAMB, BPAYT, etc.).
+_BPAF_HEADING_PATTERN = re.compile(r"\bBPAF\b", re.I)
+# Match "≤ ... BPAF = $X" in the panel text (gives the maximum BPAF).
+_LE_DOLLAR_PATTERN = re.compile(
+    r"≤.*?BPAF\s*=\s*\$([\d,]+(?:\.\d+)?)", re.I | re.S
+)
+# Match "≥ ... BPAF = $X" in the panel text (gives the minimum BPAF).
+_GE_DOLLAR_PATTERN = re.compile(
+    r"≥.*?BPAF\s*=\s*\$([\d,]+(?:\.\d+)?)", re.I | re.S
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -659,20 +671,97 @@ def _parse_federal(soup: BeautifulSoup, source_url: str = "") -> dict:
     return {"tax_brackets": brackets, "bpaf": bpaf, "k1_rate": k1_rate}
 
 
+def _parse_bpaf_from_formula_panel(soup: BeautifulSoup) -> dict | None:
+    """Strategy 0: parse BPAF max/min from the canada.ca formula panel.
+
+    Looks for an <h4> heading whose text contains "BPAF" (word boundary, so
+    BPAMB/BPAYT are excluded), then scans the immediately following
+    <div class="panel"> sibling for paragraphs containing:
+      - "≤ ... BPAF = $X"  → maximum BPAF
+      - "≥ ... BPAF = $X"  → minimum BPAF
+
+    Returns {"max": float, "min": float} on success, None on failure.
+    """
+    for h4 in soup.find_all("h4"):
+        if not _BPAF_HEADING_PATTERN.search(h4.get_text(" ", strip=True)):
+            continue
+        # Search the next 10 siblings/descendants for the panel <div>.
+        # 10 is generous for the expected page structure: the panel is typically
+        # the immediate next sibling (a whitespace text node then the div).
+        panel = None
+        for sib in h4.find_all_next(limit=10):
+            if sib.name == "div" and "panel" in (sib.get("class") or []):
+                panel = sib
+                break
+            # Stop scanning when we reach the next heading (different formula)
+            if sib.name == "h4" and sib is not h4:
+                break
+        if panel is None:
+            continue
+        text = panel.get_text(" ", strip=True)
+        max_match = _LE_DOLLAR_PATTERN.search(text)
+        min_match = _GE_DOLLAR_PATTERN.search(text)
+        if max_match and min_match:
+            return {
+                "max": _parse_num(max_match.group(1)),
+                "min": _parse_num(min_match.group(1)),
+            }
+    return None
+
+
 def _parse_bpaf(soup: BeautifulSoup, k1_rate: float) -> dict:
     """
     Extract BPAF maximum and minimum from the T4127 HTML.
 
-    The BPAF section may appear as a table or as prose text.  We look for
-    dollar amounts adjacent to the words "maximum" / "minimum", constrained to
-    the BPA plausible range ($5,000–$30,000) to avoid picking up income
-    thresholds that appear in the same paragraph.
+    Tries three strategies in order:
+
+    * Strategy 0: <h4> heading containing "BPAF" followed by a <div class="panel">
+      with paragraphs using ≤ / ≥ symbols (2026+ canada.ca formula-panel format).
+    * Strategy 1: dedicated BPAF / BPA table (caption match).
+    * Strategy 2: dollar amounts adjacent to "maximum" / "minimum" keywords.
+
+    Raises ValueError if no strategy succeeds rather than silently falling back
+    to a page-wide dollar-amount scan, which can return plausible-looking but
+    completely wrong values.
     """
     BPA_MIN_PLAUSIBLE = 5_000.0
     BPA_MAX_PLAUSIBLE = 30_000.0
 
     def _is_bpa(v: float) -> bool:
         return BPA_MIN_PLAUSIBLE <= v <= BPA_MAX_PLAUSIBLE
+
+    def _sanity_check(result: dict) -> dict:
+        """Validate BPAF result before returning it."""
+        bpaf_max = result["max"]
+        bpaf_min = result["min"]
+        if not (bpaf_max > bpaf_min > 0):
+            raise ValueError(
+                f"BPAF sanity check failed: max={bpaf_max}, min={bpaf_min}. "
+                f"Expected max > min > 0."
+            )
+        # Plausibility bounds based on historical CRA BPAF values (2024–2030):
+        # min has ranged ~$14k–$15.5k; max has ranged ~$15k–$17k.
+        _BPAF_MIN_LOWER = 10_000.0   # absolute floor — much lower means wrong data
+        _BPAF_MIN_UPPER = 20_000.0   # upper bound for the minimum BPAF
+        _BPAF_MAX_LOWER = 12_000.0   # lower bound for the maximum BPAF
+        _BPAF_MAX_UPPER = 25_000.0   # absolute ceiling — much higher means wrong data
+        if not (
+            _BPAF_MIN_LOWER <= bpaf_min <= _BPAF_MIN_UPPER
+            and _BPAF_MAX_LOWER <= bpaf_max <= _BPAF_MAX_UPPER
+        ):
+            raise ValueError(
+                f"BPAF plausibility check failed: max={bpaf_max}, min={bpaf_min}. "
+                f"Expected min in [{_BPAF_MIN_LOWER/1000:.0f}k,{_BPAF_MIN_UPPER/1000:.0f}k]"
+                f" and max in [{_BPAF_MAX_LOWER/1000:.0f}k,{_BPAF_MAX_UPPER/1000:.0f}k]"
+                f" for 2024-2030."
+            )
+        return result
+
+    # Strategy 0: 2026+ formula-panel format (<h4> + <div class="panel">)
+    result = _parse_bpaf_from_formula_panel(soup)
+    if result is not None:
+        logger.info("BPAF located via Strategy 0 (formula panel)")
+        return _sanity_check(result)
 
     # Strategy 1: dedicated BPAF / BPA table
     for t in soup.find_all("table"):
@@ -693,7 +782,7 @@ def _parse_bpaf(soup: BeautifulSoup, k1_rate: float) -> dict:
                             except ValueError:
                                 pass
                 if len(amounts) >= 2:
-                    return {"max": max(amounts), "min": min(amounts)}
+                    return _sanity_check({"max": max(amounts), "min": min(amounts)})
 
     # Strategy 2: look for dollar amounts immediately following "maximum" or
     # "minimum" keywords within the BPA section.
@@ -740,38 +829,16 @@ def _parse_bpaf(soup: BeautifulSoup, k1_rate: float) -> dict:
                     min_bpa = amount
 
     if max_bpa is not None and min_bpa is not None:
-        return {"max": max_bpa, "min": min_bpa}
+        return _sanity_check({"max": max_bpa, "min": min_bpa})
     if max_bpa is not None:
         # Only maximum found: minimum defaults to maximum (no phase-out)
-        return {"max": max_bpa, "min": max_bpa}
+        return _sanity_check({"max": max_bpa, "min": max_bpa})
 
-    # Strategy 3: fall back — collect all plausible BPA amounts in the page
-    # and take the two distinct extremes (if there are two)
-    all_amounts = set()
-    for m in re.finditer(r"\$([\d,]+(?:\.\d+)?)", soup.get_text(" ")):
-        try:
-            v = float(m.group(1).replace(",", ""))
-            if _is_bpa(v):
-                all_amounts.add(round(v, 2))
-        except ValueError:
-            pass
-
-    if len(all_amounts) >= 2:
-        sorted_amounts = sorted(all_amounts)
-        # The two we want are most likely the maximum and minimum BPA
-        # (other amounts in range may exist, but the BPA pair is typically close)
-        return {"max": sorted_amounts[-1], "min": sorted_amounts[0]}
-    if len(all_amounts) == 1:
-        v = all_amounts.pop()
-        return {"max": v, "min": v}
-
-    logger.warning(
-        "Could not parse BPAF from T4127 HTML — no BPA dollar amounts found in the "
-        "plausible range ($%.0f–$%.0f). The T4127 document structure may have changed.",
-        BPA_MIN_PLAUSIBLE,
-        BPA_MAX_PLAUSIBLE,
+    raise ValueError(
+        "Could not locate federal BPAF on T4127 page. "
+        "CRA may have changed the page format. Check dist/_debug/t4127.html "
+        "and update _parse_bpaf in cra_feed/parsers/t4127.py."
     )
-    raise ValueError("Could not parse BPAF (basic personal amount) from T4127 HTML")
 
 
 # ---------------------------------------------------------------------------

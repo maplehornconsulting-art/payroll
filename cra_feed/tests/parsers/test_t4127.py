@@ -18,7 +18,13 @@ from pathlib import Path
 import pytest
 from bs4 import BeautifulSoup
 
-from cra_feed.parsers.t4127 import _parse_federal, _find_document_url, _has_t4127_content
+from cra_feed.parsers.t4127 import (
+    _parse_federal,
+    _find_document_url,
+    _has_t4127_content,
+    _parse_bpaf_from_formula_panel,
+    _parse_bpaf,
+)
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures"
 
@@ -607,3 +613,77 @@ class TestEndToEndDualLinksDisambiguation:
     def test_k1_rate(self, result):
         assert result["k1_rate"] == pytest.approx(0.14, abs=1e-4)
 
+
+
+# ---------------------------------------------------------------------------
+# Regression – BPAF formula-panel parser (Strategy 0, 2026+ canada.ca format)
+# ---------------------------------------------------------------------------
+
+class TestBpafFromFormulaPanel:
+    """Regression: BPAF must be parsed from the <h4>+<div.panel> formula
+    block on the 2026-Jan T4127 page (and any future edition that uses
+    the same structure)."""
+
+    FIXTURE = """
+    <html><body>
+    <h4>Federal Basic Personal Amount (BPAF) Formula</h4>
+    <div class="panel panel-default text"><div class="panel-body">
+    <p>Where NI* ≤ $181,440, <strong>BPAF</strong> = $16,452</p>
+    <p>Where $181,440 &lt; NI* &lt; $258,482, <strong>BPAF</strong>**= $16,452 - (NI* - $181,440) × ($1,623 / $77,042)***</p>
+    <p>Where NI* ≥ $258,482, <strong>BPAF</strong> = $14,829</p>
+    </div></div>
+    <h4>Manitoba Basic Personal Amount (BPAMB) Formula</h4>
+    <div class="panel panel-default text"><div class="panel-body">
+    <p>Where NI* ≤ $200,000, <strong>BPAMB</strong> = $15,780</p>
+    <p>Where NI* ≥ $400,000, <strong>BPAMB</strong> = $0</p>
+    </div></div>
+    </body></html>
+    """
+
+    @pytest.fixture(scope="class")
+    def result(self):
+        soup = BeautifulSoup(self.FIXTURE, "lxml")
+        return _parse_bpaf_from_formula_panel(soup)
+
+    def test_returns_dict(self, result):
+        assert result is not None
+        assert "max" in result
+        assert "min" in result
+
+    def test_max_is_16452(self, result):
+        assert result["max"] == pytest.approx(16452.0)
+
+    def test_min_is_14829(self, result):
+        assert result["min"] == pytest.approx(14829.0)
+
+    def test_does_not_pick_up_bpamb(self, result):
+        """BPAF parser must not be fooled by the Manitoba (BPAMB) panel
+        that follows it on the same page."""
+        # If it had picked BPAMB, max would be $15,780 (the BPAMB maximum) and
+        # min would be $0 (the BPAMB minimum), not the correct BPAF values.
+        assert result["max"] == pytest.approx(16452.0)
+        assert result["min"] == pytest.approx(14829.0)
+
+
+# ---------------------------------------------------------------------------
+# Regression – missing BPAF structure raises ValueError (no silent fallback)
+# ---------------------------------------------------------------------------
+
+class TestBpafRaisesWhenStructureMissing:
+    """If CRA changes the page format and we can't find BPAF, the parser
+    must raise ValueError, NOT silently pick wrong values.
+
+    This regression guards against the removed Strategy 3 behaviour."""
+
+    def test_raises_on_unrecognized_structure(self):
+        # A page with dollar amounts but no BPAF formula panel or BPA keywords
+        html = """
+        <html><body>
+        <p>Federal tax bracket 1: $58,523 at 14%</p>
+        <p>CPP YMPE: $74,600</p>
+        <p>EI max insurable earnings: $68,900</p>
+        </body></html>
+        """
+        soup = BeautifulSoup(html, "lxml")
+        with pytest.raises(ValueError, match="BPAF"):
+            _parse_bpaf(soup, k1_rate=0.14)

@@ -51,6 +51,56 @@ class HrPayslip(models.Model):
         lines = self.env['hr.payslip.line'].search(domain)
         return sum(abs(line.total) for line in lines)
 
+    def _l10n_ca_projected_annual_contribution(self, code, period_amount, annual_max):
+        """Return the projected full-year contribution for a CPP/CPP2/EI rule.
+
+        Used by FED_TAX (K2) and PROV_TAX (K2P) to compute the non-refundable
+        credit on the employee's *true* annual contribution rather than naively
+        annualizing only the current period.
+
+        Computation::
+
+            ytd        = _l10n_ca_ytd_amount(code)              # prior periods
+            current    = abs(period_amount)                     # this period
+            remaining  = max(periods - periods_elapsed - 1, 0)  # future periods
+            projected  = ytd + current + remaining * current
+            return min(projected, annual_max)
+
+        Where ``periods_elapsed`` is the count of prior done/paid payslips for
+        the same employee in the same calendar year.  The "remaining * current"
+        extrapolation assumes the rest of the year continues at the current
+        period's contribution rate, which matches CRA T4127's per-period
+        formula assumption while still respecting the annual cap.
+
+        Args:
+            code (str): Rule code, one of ``'CPP_EE'``, ``'CPP2_EE'``,
+                ``'EI_EE'``.
+            period_amount (float): Current period's contribution (positive or
+                negative; abs() is taken internally).
+            annual_max (float): Annual statutory maximum for the contribution.
+
+        Returns:
+            float: Projected full-year contribution, never exceeding
+                ``annual_max``.
+        """
+        self.ensure_one()
+        ytd = self._l10n_ca_ytd_amount(code)
+        current = abs(period_amount or 0.0)
+        periods = self._l10n_ca_periods_per_year() or 1
+        year = self.date_from.year
+        domain = [
+            ('employee_id', '=', self.employee_id.id),
+            ('state', 'in', ('done', 'paid')),
+            ('date_to', '<', self.date_from),
+            ('date_from', '>=', f'{year}-01-01'),
+        ]
+        if self.id:
+            domain.append(('id', '!=', self.id))
+        periods_elapsed = self.env['hr.payslip'].search_count(domain)
+        remaining = max(periods - periods_elapsed - 1, 0)
+        projected = ytd + current + remaining * current
+        return min(projected, annual_max)
+
     def _l10n_ca_periods_per_year(self):
         """Return the number of pay periods per year for this payslip's schedule.
 

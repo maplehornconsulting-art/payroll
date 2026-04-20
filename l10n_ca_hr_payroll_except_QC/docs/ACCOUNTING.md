@@ -209,7 +209,7 @@ The helper `HrPayslip._l10n_ca_ytd_amount(code)` in
 - Same `employee_id`
 - Same calendar year as `self.date_from`
 - Payslip state `in ('done', 'paid')` — draft/cancelled payslips are excluded
-- `payslip_id.date_to < self.date_from` — only payslips that ended before
+- `slip_id.date_to < self.date_from` — only payslips that ended before
   the current payslip starts
 - `salary_rule_id.code == code`
 

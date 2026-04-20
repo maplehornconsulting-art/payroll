@@ -1,8 +1,0 @@
-id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_l10n_ca_remittance_config_manager,l10n.ca.remittance.config.manager,model_l10n_ca_remittance_config,hr_payroll.group_hr_payroll_manager,1,1,1,1
-access_l10n_ca_remittance_config_user,l10n.ca.remittance.config.user,model_l10n_ca_remittance_config,hr_payroll.group_hr_payroll_user,1,0,0,0
-access_l10n_ca_remittance_manager,l10n.ca.remittance.manager,model_l10n_ca_remittance,hr_payroll.group_hr_payroll_manager,1,1,1,1
-access_l10n_ca_remittance_user,l10n.ca.remittance.user,model_l10n_ca_remittance,hr_payroll.group_hr_payroll_user,1,0,0,0
-access_l10n_ca_remittance_line_manager,l10n.ca.remittance.line.manager,model_l10n_ca_remittance_line,hr_payroll.group_hr_payroll_manager,1,1,1,1
-access_l10n_ca_remittance_line_user,l10n.ca.remittance.line.user,model_l10n_ca_remittance_line,hr_payroll.group_hr_payroll_user,1,0,0,0
-access_l10n_ca_remittance_payment_wizard,l10n.ca.remittance.payment.wizard,model_l10n_ca_remittance_payment_wizard,hr_payroll.group_hr_payroll_manager,1,1,1,1

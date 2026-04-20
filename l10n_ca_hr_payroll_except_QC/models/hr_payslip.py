@@ -25,7 +25,7 @@ class HrPayslip(models.Model):
           - Same calendar year as ``self.date_from``.
           - Payslip state in ``('done', 'paid')`` — draft/cancelled slips are
             excluded so only locked, remitted payslips count.
-          - ``payslip_id.date_to < self.date_from`` — only payslips that ended
+          - ``slip_id.date_to < self.date_from`` — only payslips that ended
             *before* the current payslip's start date.
           - ``salary_rule_id.code == code``.
           - Excludes the current payslip itself (relevant when the payslip is
@@ -41,13 +41,13 @@ class HrPayslip(models.Model):
         year = self.date_from.year
         domain = [
             ('employee_id', '=', self.employee_id.id),
-            ('payslip_id.state', 'in', ('done', 'paid')),
-            ('payslip_id.date_to', '<', self.date_from),
-            ('payslip_id.date_from', '>=', f'{year}-01-01'),
+            ('slip_id.state', 'in', ('done', 'paid')),
+            ('slip_id.date_to', '<', self.date_from),
+            ('slip_id.date_from', '>=', f'{year}-01-01'),
             ('salary_rule_id.code', '=', code),
         ]
         if self.id:
-            domain.append(('payslip_id.id', '!=', self.id))
+            domain.append(('slip_id.id', '!=', self.id))
         lines = self.env['hr.payslip.line'].search(domain)
         return sum(abs(line.total) for line in lines)
 

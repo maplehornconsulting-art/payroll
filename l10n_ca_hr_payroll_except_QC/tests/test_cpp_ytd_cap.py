@@ -22,7 +22,28 @@ branches in ``models/hr_payslip.py``.
 
 from __future__ import annotations
 
+import importlib.util
+import pathlib
+from datetime import date
+from unittest.mock import MagicMock
+
 import pytest
+
+
+# ---------------------------------------------------------------------------
+# Module loader for ORM-level regression tests
+# ---------------------------------------------------------------------------
+
+def _load_hr_payslip_class():
+    """Load HrPayslip from source without a live Odoo instance."""
+    path = pathlib.Path(__file__).parent.parent / "models" / "hr_payslip.py"
+    spec = importlib.util.spec_from_file_location("hr_payslip", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.HrPayslip
+
+
+_HrPayslipCls = _load_hr_payslip_class()
 
 # ---------------------------------------------------------------------------
 # 2026 CRA parameters — must match hr_rule_parameters_data.xml
@@ -371,3 +392,84 @@ class TestEiAnnualCap:
         expected_insurable = min(gross, _EI_MAX_INSURABLE / self.PERIODS)
         expected = round(min(expected_insurable * _EI_RATE, _EI_MAX_PREMIUM), 2)
         assert result == pytest.approx(expected, abs=0.01)
+
+
+# ---------------------------------------------------------------------------
+# Scenario 8 — ORM field-name regression: slip_id not payslip_id
+# ---------------------------------------------------------------------------
+
+class TestYtdAmountDomain:
+    """Regression test: _l10n_ca_ytd_amount must use ``slip_id`` in its domain.
+
+    Standard Odoo ``hr.payslip.line`` defines the many2one back-reference to
+    ``hr.payslip`` as ``slip_id``, not ``payslip_id``.  Using the wrong name
+    raises ``ValueError: Invalid field hr.payslip.line.payslip_id`` at runtime.
+
+    These tests load the real ``_l10n_ca_ytd_amount`` method via importlib so
+    they run without a live Odoo instance while still exercising the actual
+    domain construction code.
+    """
+
+    def _make_slip(self, slip_id=None):
+        """Return a minimal fake payslip that records the search domain."""
+        slip = MagicMock()
+        slip.id = slip_id
+        slip.employee_id.id = 42
+        slip.date_from = date(2026, 3, 23)
+
+        # Capture the domain passed to env['hr.payslip.line'].search(domain)
+        slip._captured_domains = []
+
+        fake_line = MagicMock()
+        fake_line.total = -568.68
+
+        def _fake_search(domain):
+            slip._captured_domains.append(list(domain))
+            return [fake_line]
+
+        slip.env.__getitem__.return_value.search.side_effect = _fake_search
+        return slip
+
+    @staticmethod
+    def _field_names(domain):
+        """Extract field names from a search domain (list of 3-tuples)."""
+        return [cond[0] for cond in domain if isinstance(cond, (list, tuple)) and len(cond) == 3]
+
+    def test_domain_uses_slip_id_not_payslip_id(self):
+        """No domain condition may reference ``payslip_id``."""
+        slip = self._make_slip(slip_id=None)
+        _HrPayslipCls._l10n_ca_ytd_amount(slip, 'CPP_EE')
+        assert slip._captured_domains, "search() was never called"
+        field_names = self._field_names(slip._captured_domains[0])
+        bad = [f for f in field_names if f.startswith('payslip_id')]
+        assert not bad, (
+            f"Domain contains forbidden 'payslip_id' references: {bad}. "
+            "Must use 'slip_id' (standard Odoo hr.payslip.line field name)."
+        )
+
+    def test_domain_contains_slip_id_conditions(self):
+        """Domain must include the expected ``slip_id.*`` filter conditions."""
+        slip = self._make_slip(slip_id=None)
+        _HrPayslipCls._l10n_ca_ytd_amount(slip, 'CPP_EE')
+        field_names = self._field_names(slip._captured_domains[0])
+        slip_id_fields = [f for f in field_names if f.startswith('slip_id')]
+        assert 'slip_id.state' in slip_id_fields
+        assert 'slip_id.date_to' in slip_id_fields
+        assert 'slip_id.date_from' in slip_id_fields
+
+    def test_excludes_current_slip_when_id_set(self):
+        """When slip.id is set, an exclusion condition is added using slip_id.id."""
+        slip = self._make_slip(slip_id=99)
+        _HrPayslipCls._l10n_ca_ytd_amount(slip, 'CPP_EE')
+        field_names = self._field_names(slip._captured_domains[0])
+        assert 'slip_id.id' in field_names, (
+            "Expected 'slip_id.id' exclusion condition when slip.id is set"
+        )
+        # Must not use the old wrong field name for the exclusion either
+        assert 'payslip_id.id' not in field_names
+
+    def test_returns_abs_total_of_prior_line(self):
+        """Return value equals abs(line.total) of lines returned by search."""
+        slip = self._make_slip(slip_id=None)
+        result = _HrPayslipCls._l10n_ca_ytd_amount(slip, 'CPP_EE')
+        assert result == pytest.approx(568.68, abs=0.01)

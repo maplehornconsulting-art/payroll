@@ -32,6 +32,22 @@ _CLONE_FIELDS = (
     "register_id",
 )
 
+# Fields to fill in on an existing target rule when the field is blank.
+# Used by the repair pass to fix databases where the old rule.copy() clone
+# left accounting and compute fields empty.
+_REPAIR_FIELDS = (
+    "account_debit",
+    "account_credit",
+    "analytic_account_id",
+    "amount_python_compute",
+    "condition_python",
+    "condition_select",
+    "amount_select",
+    "category_id",
+    "sequence",
+    "appears_on_payslip",
+)
+
 
 class HrPayrollStructure(models.Model):
     _inherit = "hr.payroll.structure"
@@ -89,7 +105,48 @@ class HrPayrollStructure(models.Model):
                     "l10n_ca clone: failed to copy rule %s to salaried structure: %s",
                     rule.code, e,
                 )
+        # Repair pass: fill blank fields on existing target rules from the source.
+        # This fixes databases where the old rule.copy()-based clone left
+        # account_debit / account_credit and python compute fields blank.
+        # Only fills fields that are currently falsy — intentional customisations
+        # already present on the target rule are never overwritten.
+        target_by_code = {r.code: r for r in target_struct.rule_ids}
+        repaired = unchanged = 0
+        for src_rule in source_struct.rule_ids:
+            tgt_rule = target_by_code.get(src_rule.code)
+            if not tgt_rule:
+                continue  # newly created above — no repair needed
+            patch = {}
+            for fname in _REPAIR_FIELDS:
+                if fname not in src_rule._fields or fname not in tgt_rule._fields:
+                    continue
+                src_val = src_rule[fname]
+                tgt_val = tgt_rule[fname]
+                field = src_rule._fields[fname]
+                if field.type == "many2one":
+                    if not tgt_val and src_val:
+                        patch[fname] = src_val.id
+                else:
+                    # Treat None / "" / 0 as missing for repair purposes.
+                    if not tgt_val and src_val:
+                        patch[fname] = src_val
+            if patch:
+                try:
+                    tgt_rule.write(patch)
+                    repaired += 1
+                    _logger.info(
+                        "l10n_ca clone: repaired rule %s on '%s' with fields %s",
+                        src_rule.code, target_struct.name, list(patch.keys()),
+                    )
+                except Exception as e:
+                    _logger.warning(
+                        "l10n_ca clone: failed to repair rule %s on '%s': %s",
+                        src_rule.code, target_struct.name, e,
+                    )
+            else:
+                unchanged += 1
+
         _logger.info(
-            "l10n_ca clone: cloned %d rule(s), skipped %d existing on '%s'",
-            cloned, skipped, target_struct.name,
+            "l10n_ca clone: cloned %d new, repaired %d existing, skipped %d unchanged on '%s'",
+            cloned, repaired, unchanged, target_struct.name,
         )

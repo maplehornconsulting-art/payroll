@@ -237,6 +237,61 @@ def _run_clone(source_rules: list, target_rules: list, fail_codes: set | None = 
     return source, target, created_vals
 
 
+# Fields repaired by the repair pass (mirrors _REPAIR_FIELDS in hr_payroll_structure.py).
+_REPAIR_FIELDS = (
+    "account_debit",
+    "account_credit",
+    "analytic_account_id",
+    "amount_python_compute",
+    "condition_python",
+    "condition_select",
+    "amount_select",
+    "category_id",
+    "sequence",
+    "appears_on_payslip",
+)
+
+
+def _run_repair(source_rules: list, target_rules: list, fail_codes: set | None = None):
+    """Execute the repair-pass algorithm from _l10n_ca_clone_rules_to_salaried.
+
+    Returns (source, target, repaired_patches) where *repaired_patches* is a
+    dict mapping rule code → patch dict that would be passed to write().
+    Rules listed in *fail_codes* simulate a write() exception (patch is not
+    recorded, mirroring the except branch).
+    """
+    source = _make_struct(source_rules)
+    target = _make_struct(target_rules)
+
+    target_by_code = {r.code: r for r in target.rule_ids}
+    repaired_patches: dict[str, dict] = {}
+
+    for src_rule in source.rule_ids:
+        tgt_rule = target_by_code.get(src_rule.code)
+        if not tgt_rule:
+            continue
+        patch: dict = {}
+        for fname in _REPAIR_FIELDS:
+            if fname not in src_rule._fields or fname not in tgt_rule._fields:
+                continue
+            src_val = src_rule[fname]
+            tgt_val = tgt_rule[fname]
+            field = src_rule._fields[fname]
+            if field.type == "many2one":
+                if not tgt_val and src_val:
+                    patch[fname] = src_val.id
+            else:
+                if not tgt_val and src_val:
+                    patch[fname] = src_val
+        if patch:
+            if fail_codes and src_rule.code in fail_codes:
+                pass  # simulate write() raising — patch not applied
+            else:
+                repaired_patches[src_rule.code] = patch
+
+    return source, target, repaired_patches
+
+
 class TestCloneRulesToSalaried:
     """Unit tests for the _l10n_ca_clone_rules_to_salaried clone logic.
 
@@ -341,6 +396,78 @@ class TestCloneRulesToSalaried:
         target_rules_after = [_make_rule(v["code"], i) for i, v in enumerate(created_first)]
         _, _, created_second = _run_clone(rules, target_rules_after)
         assert len(created_second) == 0, "Second clone must be a no-op"
+
+
+# ---------------------------------------------------------------------------
+# 3b. Repair-pass logic
+# ---------------------------------------------------------------------------
+
+
+class TestRepairPass:
+    """Unit tests for the repair pass in _l10n_ca_clone_rules_to_salaried.
+
+    The repair pass fills blank fields on *existing* target rules from the
+    matching source rule.  It must be non-destructive (never overwrite a field
+    that already has a value) and resilient (a failing write on one rule must
+    not abort processing of the remaining rules).
+    """
+
+    def test_repair_fills_blank_account_debit_and_credit(self):
+        """A target rule with empty account_debit/account_credit is patched."""
+        src_rule = _make_rule("GROSS", 1)
+        src_rule.account_debit.id = 5410
+        src_rule.account_credit.id = 2380
+        # Target rule has None for both accounting fields (old buggy clone)
+        tgt_rule = _make_rule("GROSS", 10, extra_fields={"account_debit": None, "account_credit": None})
+        _, _, patches = _run_repair([src_rule], [tgt_rule])
+        assert "GROSS" in patches, "GROSS rule should have been repaired"
+        assert patches["GROSS"].get("account_debit") == 5410
+        assert patches["GROSS"].get("account_credit") == 2380
+
+    def test_repair_fills_blank_amount_python_compute(self):
+        """A target rule with empty amount_python_compute gets the source body."""
+        src_rule = _make_rule("FED_TAX", 1)
+        src_rule.amount_python_compute = "result = compute_fed_tax()"
+        tgt_rule = _make_rule("FED_TAX", 10, extra_fields={"amount_python_compute": ""})
+        _, _, patches = _run_repair([src_rule], [tgt_rule])
+        assert "FED_TAX" in patches
+        assert patches["FED_TAX"].get("amount_python_compute") == "result = compute_fed_tax()"
+
+    def test_repair_does_not_overwrite_existing_account_debit(self):
+        """A target rule that already has account_debit set is NOT overwritten."""
+        src_rule = _make_rule("GROSS", 1)
+        src_rule.account_debit.id = 5410
+        # Target already has a custom account
+        custom_acct = MagicMock()
+        custom_acct.id = 9999
+        tgt_rule = _make_rule("GROSS", 10, extra_fields={"account_debit": custom_acct})
+        _, _, patches = _run_repair([src_rule], [tgt_rule])
+        # account_debit must NOT appear in the patch — it already has a value
+        patch = patches.get("GROSS", {})
+        assert "account_debit" not in patch, (
+            "account_debit should not be overwritten when target already has a value"
+        )
+
+    def test_repair_no_error_when_source_rule_has_no_target_match(self):
+        """Repair pass does not raise when a source rule has no matching target rule."""
+        src_rule = _make_rule("ORPHAN", 1)
+        tgt_rule = _make_rule("OTHER", 10)
+        # Should complete without exception; no patches produced
+        _, _, patches = _run_repair([src_rule], [tgt_rule])
+        assert patches == {}
+
+    def test_repair_failing_write_does_not_abort_rest(self):
+        """A failing write() on one rule must not prevent repairs on other rules."""
+        src1 = _make_rule("GROSS", 1)
+        src1.account_debit.id = 5410
+        src2 = _make_rule("NET", 2)
+        src2.account_debit.id = 5420
+        tgt1 = _make_rule("GROSS", 10, extra_fields={"account_debit": None})
+        tgt2 = _make_rule("NET", 20, extra_fields={"account_debit": None})
+        # Simulate GROSS write() raising — NET should still be patched
+        _, _, patches = _run_repair([src1, src2], [tgt1, tgt2], fail_codes={"GROSS"})
+        assert "NET" in patches, "NET repair must proceed even when GROSS write() fails"
+        assert "GROSS" not in patches
 
 
 # ---------------------------------------------------------------------------

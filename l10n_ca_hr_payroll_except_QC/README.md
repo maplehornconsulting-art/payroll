@@ -352,6 +352,7 @@ A future `l10n_ca_qc_hr_payroll` module may be developed for Quebec.
 ### v1.5 (April 2026) — Salaried structure parity
 
 - ✅ Replaced `rule.copy()` with explicit field-by-field clone in `_l10n_ca_clone_rules_to_salaried` — fixes missing accounting integration (`account_debit`, `account_credit`) on salaried payslips
+- ✅ Repair pass in `_l10n_ca_clone_rules_to_salaried` — on upgrade, fills in missing `account_debit` / `account_credit` / python compute on existing salaried rules created by the old buggy clone, so `-u l10n_ca_hr_payroll_except_QC` is enough to fix production databases without manually deleting and recreating salaried rules
 - ✅ `_get_paid_amount` non-CA fallback: function now always returns a numeric value (never `None`) for non-Canadian payslips
 - ✅ `_get_paid_amount` monthly wage_type scaling: salaried employees on non-monthly schedules (e.g. bi-weekly) now receive the correct per-period BASIC amount (base × 12 / periods) instead of the full monthly wage
 - ⚠️  **Upgrade required**: run `-u l10n_ca_hr_payroll_except_QC` on existing databases so the salaried structure rules are re-cloned with full accounting field values

@@ -2,4 +2,3 @@
 
 from . import test_remittance
 from . import test_journal_posting_directions
-from . import test_salaried_parity

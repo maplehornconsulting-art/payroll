@@ -1,12 +1,12 @@
 # Part of MHC. See LICENSE file for full copyright and licensing details.
-"""Tests for the dual Hourly/Salaried structure types introduced in v19.0.1.4.
+"""Tests for the dual Hourly/Salaried structure types.
 
 These tests verify:
 1. Both structure type records are declared in the XML data file.
 2. Both pay structure records are declared in the XML data file, each pointing
    at the correct structure type.
-3. The ``_l10n_ca_clone_rules_to_salaried`` Python helper is idempotent and
-   correctly copies rules from a source structure to a target.
+3. Every Hourly salary rule has a parallel Salaried record in the XML
+   (no runtime clone needed — rules are declared statically twice).
 4. ``_get_paid_amount`` non-CA fallback and monthly wage_type scaling.
 """
 
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pathlib
 import xml.etree.ElementTree as ET
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock
 
 
 # ---------------------------------------------------------------------------
@@ -112,362 +112,122 @@ class TestPayStructureXml:
 
 
 # ---------------------------------------------------------------------------
-# 3. _l10n_ca_clone_rules_to_salaried logic
+# 3. Salary rule XML parity: every Hourly rule has a Salaried twin
 # ---------------------------------------------------------------------------
 
-# Fields expected to be copied by the new explicit field-by-field clone.
-_CLONE_FIELDS = (
-    "sequence",
-    "category_id",
-    "condition_select",
-    "condition_python",
-    "condition_range",
-    "condition_range_min",
-    "condition_range_max",
-    "amount_select",
-    "amount_fix",
-    "amount_percentage",
-    "amount_percentage_base",
-    "amount_python_compute",
-    "appears_on_payslip",
-    "active",
-    "account_debit",
-    "account_credit",
-    "analytic_account_id",
-    "note",
-    "partner_id",
-    "register_id",
-)
+# Canonical set of expected rule codes on both structures.
+_EXPECTED_RULE_CODES = {
+    'BASIC', 'OT', 'VAC_PAY', 'GROSS', 'STO', 'PTO', 'CTO',
+    'RRSP', 'UNION_DUES',
+    'CPP_EE', 'CPP2_EE', 'EI_EE',
+    'FED_TAX', 'PROV_TAX', 'OHP',
+    'NET',
+    'CPP_ER', 'CPP2_ER', 'EI_ER',
+}
+
+_HOURLY_STRUCT_REF = "hr_payroll_structure_ca_employee_salary"
+_SALARIED_STRUCT_REF = "hr_payroll_structure_ca_employee_salary_salaried"
 
 
-def _make_field(ftype: str):
-    """Return a minimal mock Odoo field descriptor."""
-    f = MagicMock()
-    f.type = ftype
-    return f
+class TestSalariedRuleXmlParity:
+    """Verify hr_salary_rule_data.xml declares every rule on both structures.
 
-
-def _make_rule(code: str, rule_id: int, extra_fields: dict | None = None) -> MagicMock:
-    """Return a minimal mock salary rule with all _CLONE_FIELDS present."""
-    rule = MagicMock()
-    rule.code = code
-    rule.id = rule_id
-    rule.name = f"Rule {code}"
-
-    # Build _fields dict so the clone logic can introspect field types.
-    fields = {}
-    # Scalar fields
-    for fname in ("sequence", "condition_select", "condition_python",
-                  "condition_range", "condition_range_min", "condition_range_max",
-                  "amount_select", "amount_fix", "amount_percentage",
-                  "amount_percentage_base", "amount_python_compute",
-                  "appears_on_payslip", "active", "note"):
-        fields[fname] = _make_field("char")
-    # Many2one fields
-    for fname in ("category_id", "account_debit", "account_credit",
-                  "analytic_account_id", "partner_id", "register_id"):
-        fields[fname] = _make_field("many2one")
-    rule._fields = fields
-
-    # Set sensible defaults for functional fields we care about in tests
-    rule.sequence = 10
-    rule.condition_python = ""
-    rule.amount_python_compute = "result = contract.wage"
-    rule.appears_on_payslip = True
-    rule.active = True
-    rule.account_debit = MagicMock()
-    rule.account_debit.id = 5410
-    rule.account_credit = MagicMock()
-    rule.account_credit.id = 2310
-
-    if extra_fields:
-        for k, v in extra_fields.items():
-            setattr(rule, k, v)
-
-    # Make rule[fname] work via __getitem__
-    rule.__getitem__ = lambda _, key: getattr(rule, key)
-
-    return rule
-
-
-def _make_struct(rules: list) -> MagicMock:
-    """Return a minimal mock hr.payroll.structure with the given rules."""
-    struct = MagicMock()
-    struct.rule_ids = rules
-    struct.id = id(struct)
-    struct.name = "Test Structure"
-    return struct
-
-
-def _run_clone(source_rules: list, target_rules: list, fail_codes: set | None = None):
-    """Execute the same algorithm as the new _l10n_ca_clone_rules_to_salaried.
-
-    Returns (source, target, created_vals_list) where *created_vals_list* is
-    the list of ``vals`` dicts passed to ``Rule.create()`` for each cloned rule.
+    This replaces the old clone-based approach: rules are now declared
+    statically twice in XML.  These tests guard against accidentally
+    forgetting to add the ``_salaried`` twin when a new rule is introduced.
     """
-    source = _make_struct(source_rules)
-    target = _make_struct(target_rules)
 
-    existing_codes = {r.code for r in target.rule_ids}
-    created_vals = []
-
-    for rule in source.rule_ids:
-        if rule.code in existing_codes:
-            continue
-        vals = {}
-        for fname in _CLONE_FIELDS:
-            if fname not in rule._fields:
+    def setup_method(self):
+        root = _parse_xml("hr_salary_rule_data.xml")
+        all_rules = _record_ids(root, "hr.salary.rule")
+        self.hourly_codes: dict[str, str] = {}   # code → xml_id
+        self.salaried_codes: dict[str, str] = {}  # code → xml_id
+        for xml_id, fields in all_rules.items():
+            code = fields.get("code", "").strip()
+            struct = fields.get("struct_id", "").strip()
+            if not code:
                 continue
-            field = rule._fields[fname]
-            value = rule[fname]
-            if field.type == "many2one":
-                vals[fname] = value.id if value else False
-            else:
-                vals[fname] = value
-        vals.update({
-            "struct_id": target.id,
-            "name": rule.name,
-            "code": rule.code,
-        })
-        if fail_codes and rule.code in fail_codes:
-            # Simulate a create failure for this rule
-            continue
-        created_vals.append(vals)
+            if struct == _HOURLY_STRUCT_REF:
+                self.hourly_codes[code] = xml_id
+            elif struct == _SALARIED_STRUCT_REF:
+                self.salaried_codes[code] = xml_id
 
-    return source, target, created_vals
+    def test_hourly_has_all_expected_rule_codes(self):
+        missing = _EXPECTED_RULE_CODES - set(self.hourly_codes)
+        assert not missing, (
+            f"Hourly structure is missing expected rule codes: {sorted(missing)}"
+        )
 
+    def test_salaried_has_all_expected_rule_codes(self):
+        missing = _EXPECTED_RULE_CODES - set(self.salaried_codes)
+        assert not missing, (
+            f"Salaried structure is missing expected rule codes: {sorted(missing)}\n"
+            "Add a parallel '<record id=\"..._salaried\"> pointing at "
+            "hr_payroll_structure_ca_employee_salary_salaried for each missing code."
+        )
 
-# Fields repaired by the repair pass (mirrors _REPAIR_FIELDS in hr_payroll_structure.py).
-_REPAIR_FIELDS = (
-    "account_debit",
-    "account_credit",
-    "analytic_account_id",
-    "amount_python_compute",
-    "condition_python",
-    "condition_select",
-    "amount_select",
-    "category_id",
-    "sequence",
-    "appears_on_payslip",
-)
+    def test_hourly_and_salaried_have_identical_codes(self):
+        only_hourly = set(self.hourly_codes) - set(self.salaried_codes)
+        only_salaried = set(self.salaried_codes) - set(self.hourly_codes)
+        assert not only_hourly and not only_salaried, (
+            f"Rule code mismatch between structures.\n"
+            f"  Only on Hourly: {sorted(only_hourly)}\n"
+            f"  Only on Salaried: {sorted(only_salaried)}"
+        )
 
+    def test_salaried_records_have_salaried_suffix_in_xmlid(self):
+        """All salaried records should have '_salaried' in their xml id."""
+        bad = [xid for xid in self.salaried_codes.values() if '_salaried' not in xid]
+        assert not bad, (
+            f"Salaried rule records missing '_salaried' suffix in xml id: {bad}"
+        )
 
-def _run_repair(source_rules: list, target_rules: list, fail_codes: set | None = None):
-    """Execute the repair-pass algorithm from _l10n_ca_clone_rules_to_salaried.
+    def test_each_rule_body_calls_helper_on_payslip(self):
+        """Every amount_python_compute must be a single helper call on payslip."""
+        root = _parse_xml("hr_salary_rule_data.xml")
+        bad = []
+        for rec in root.findall(".//record[@model='hr.salary.rule']"):
+            xml_id = rec.get("id", "")
+            for fld in rec.findall("field[@name='amount_python_compute']"):
+                body = (fld.text or "").strip()
+                if not body.startswith("result = payslip._l10n_ca_compute_"):
+                    bad.append((xml_id, body[:60]))
+        assert not bad, (
+            "These rules do not have a one-line helper call:\n"
+            + "\n".join(f"  {xid}: {body!r}" for xid, body in bad)
+        )
 
-    Returns (source, target, repaired_patches) where *repaired_patches* is a
-    dict mapping rule code → patch dict that would be passed to write().
-    Rules listed in *fail_codes* simulate a write() exception (patch is not
-    recorded, mirroring the except branch).
-    """
-    source = _make_struct(source_rules)
-    target = _make_struct(target_rules)
+    def test_no_function_tag_in_xml(self):
+        """The <function> clone tag must have been removed."""
+        root = _parse_xml("hr_salary_rule_data.xml")
+        fn_tags = root.findall(".//function")
+        assert not fn_tags, (
+            "Found <function> tags in hr_salary_rule_data.xml — "
+            "the runtime clone machinery must be removed."
+        )
 
-    target_by_code = {r.code: r for r in target.rule_ids}
-    repaired_patches: dict[str, dict] = {}
-
-    for src_rule in source.rule_ids:
-        tgt_rule = target_by_code.get(src_rule.code)
-        if not tgt_rule:
-            continue
-        patch: dict = {}
-        for fname in _REPAIR_FIELDS:
-            if fname not in src_rule._fields or fname not in tgt_rule._fields:
-                continue
-            src_val = src_rule[fname]
-            tgt_val = tgt_rule[fname]
-            field = src_rule._fields[fname]
-            if field.type == "many2one":
-                if not tgt_val and src_val:
-                    patch[fname] = src_val.id
-            else:
-                if not tgt_val and src_val:
-                    patch[fname] = src_val
-        if patch:
-            if fail_codes and src_rule.code in fail_codes:
-                pass  # simulate write() raising — patch not applied
-            else:
-                repaired_patches[src_rule.code] = patch
-
-    return source, target, repaired_patches
-
-
-class TestCloneRulesToSalaried:
-    """Unit tests for the _l10n_ca_clone_rules_to_salaried clone logic.
-
-    The method uses @api.model which is a MagicMock stub in the test
-    environment.  We therefore test the algorithm by replaying the same logic
-    directly, and separately verify that the module can be imported cleanly.
-    """
-
-    # ---- Module smoke-test -----------------------------------------------
-
-    def test_module_imports_cleanly(self):
-        """hr_payroll_structure.py must be importable without a live Odoo env."""
+    def test_module_has_no_clone_method(self):
+        """hr_payroll_structure.py must not contain _l10n_ca_clone_rules_to_salaried."""
         import importlib.util
-
         path = pathlib.Path(__file__).parent.parent / "models" / "hr_payroll_structure.py"
         spec = importlib.util.spec_from_file_location("hr_payroll_structure", path)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        assert hasattr(mod, "HrPayrollStructure"), "HrPayrollStructure class not found in module"
-
-    # ---- Algorithm tests (logic extracted for stub-safe testing) ----------
-
-    def test_copies_all_rules_to_empty_target(self):
-        rules = [_make_rule("CPP_EE", 1), _make_rule("EI_EE", 2), _make_rule("NET", 3)]
-        _, _, created = _run_clone(rules, [])
-        assert len(created) == 3, "All 3 rules should be cloned to empty target"
-        codes = {v["code"] for v in created}
-        assert codes == {"CPP_EE", "EI_EE", "NET"}
-
-    def test_skips_existing_codes_in_target(self):
-        existing = _make_rule("CPP_EE", 10)
-        source_rules = [_make_rule("CPP_EE", 1), _make_rule("EI_EE", 2)]
-        _, _, created = _run_clone(source_rules, [existing])
-        assert len(created) == 1, "Only EI_EE should be cloned; CPP_EE already in target"
-        assert created[0]["code"] == "EI_EE"
-
-    def test_idempotent_on_repeated_call(self):
-        """Calling clone with a target that already has all rules must be a no-op."""
-        existing = _make_rule("CPP_EE", 99)
-        source_rules = [_make_rule("CPP_EE", 1)]
-        _, _, created = _run_clone(source_rules, [existing])
-        assert len(created) == 0, "CPP_EE already in target; no rules should be cloned"
-
-    def test_clones_account_debit_and_credit(self):
-        """account_debit and account_credit must appear in create vals."""
-        rule = _make_rule("GROSS", 1)
-        rule.account_debit.id = 5410
-        rule.account_credit.id = 2380
-        _, _, created = _run_clone([rule], [])
-        assert len(created) == 1
-        vals = created[0]
-        assert vals.get("account_debit") == 5410, "account_debit id should be copied"
-        assert vals.get("account_credit") == 2380, "account_credit id should be copied"
-
-    def test_clones_amount_python_compute_and_condition_python(self):
-        """amount_python_compute and condition_python must appear in create vals."""
-        rule = _make_rule("FED_TAX", 5)
-        rule.amount_python_compute = "result = employee.fed_tax_calc()"
-        rule.condition_python = "result = employee.l10n_ca_sin != False"
-        _, _, created = _run_clone([rule], [])
-        assert len(created) == 1
-        vals = created[0]
-        assert vals.get("amount_python_compute") == "result = employee.fed_tax_calc()"
-        assert vals.get("condition_python") == "result = employee.l10n_ca_sin != False"
-
-    def test_clones_sequence(self):
-        """sequence must appear in create vals."""
-        rule = _make_rule("NET", 7)
-        rule.sequence = 42
-        _, _, created = _run_clone([rule], [])
-        assert len(created) == 1
-        assert created[0].get("sequence") == 42
-
-    def test_create_vals_always_contain_struct_id_name_code(self):
-        """struct_id, name, and code must always be set in create vals."""
-        rule = _make_rule("BASIC", 1)
-        _, target, created = _run_clone([rule], [])
-        assert len(created) == 1
-        vals = created[0]
-        assert vals["struct_id"] == target.id
-        assert vals["name"] == rule.name
-        assert vals["code"] == "BASIC"
-
-    def test_single_failing_rule_does_not_abort_rest(self):
-        """A create failure on one rule must not prevent other rules from being cloned."""
-        rules = [_make_rule("CPP_EE", 1), _make_rule("EI_EE", 2), _make_rule("NET", 3)]
-        # Simulate CPP_EE failing by passing fail_codes
-        _, _, created = _run_clone(rules, [], fail_codes={"CPP_EE"})
-        # EI_EE and NET should still be cloned
-        codes = {v["code"] for v in created}
-        assert "EI_EE" in codes
-        assert "NET" in codes
-        assert "CPP_EE" not in codes
-
-    def test_idempotent_double_clone(self):
-        """Running the clone twice (with target already populated) adds no new rules."""
-        rules = [_make_rule("CPP_EE", 1), _make_rule("EI_EE", 2)]
-        # First clone
-        _, _, created_first = _run_clone(rules, [])
-        assert len(created_first) == 2
-        # Simulate second clone: target now has the same codes
-        target_rules_after = [_make_rule(v["code"], i) for i, v in enumerate(created_first)]
-        _, _, created_second = _run_clone(rules, target_rules_after)
-        assert len(created_second) == 0, "Second clone must be a no-op"
-
-
-# ---------------------------------------------------------------------------
-# 3b. Repair-pass logic
-# ---------------------------------------------------------------------------
-
-
-class TestRepairPass:
-    """Unit tests for the repair pass in _l10n_ca_clone_rules_to_salaried.
-
-    The repair pass fills blank fields on *existing* target rules from the
-    matching source rule.  It must be non-destructive (never overwrite a field
-    that already has a value) and resilient (a failing write on one rule must
-    not abort processing of the remaining rules).
-    """
-
-    def test_repair_fills_blank_account_debit_and_credit(self):
-        """A target rule with empty account_debit/account_credit is patched."""
-        src_rule = _make_rule("GROSS", 1)
-        src_rule.account_debit.id = 5410
-        src_rule.account_credit.id = 2380
-        # Target rule has None for both accounting fields (old buggy clone)
-        tgt_rule = _make_rule("GROSS", 10, extra_fields={"account_debit": None, "account_credit": None})
-        _, _, patches = _run_repair([src_rule], [tgt_rule])
-        assert "GROSS" in patches, "GROSS rule should have been repaired"
-        assert patches["GROSS"].get("account_debit") == 5410
-        assert patches["GROSS"].get("account_credit") == 2380
-
-    def test_repair_fills_blank_amount_python_compute(self):
-        """A target rule with empty amount_python_compute gets the source body."""
-        src_rule = _make_rule("FED_TAX", 1)
-        src_rule.amount_python_compute = "result = compute_fed_tax()"
-        tgt_rule = _make_rule("FED_TAX", 10, extra_fields={"amount_python_compute": ""})
-        _, _, patches = _run_repair([src_rule], [tgt_rule])
-        assert "FED_TAX" in patches
-        assert patches["FED_TAX"].get("amount_python_compute") == "result = compute_fed_tax()"
-
-    def test_repair_does_not_overwrite_existing_account_debit(self):
-        """A target rule that already has account_debit set is NOT overwritten."""
-        src_rule = _make_rule("GROSS", 1)
-        src_rule.account_debit.id = 5410
-        # Target already has a custom account
-        custom_acct = MagicMock()
-        custom_acct.id = 9999
-        tgt_rule = _make_rule("GROSS", 10, extra_fields={"account_debit": custom_acct})
-        _, _, patches = _run_repair([src_rule], [tgt_rule])
-        # account_debit must NOT appear in the patch — it already has a value
-        patch = patches.get("GROSS", {})
-        assert "account_debit" not in patch, (
-            "account_debit should not be overwritten when target already has a value"
+        assert hasattr(mod, "HrPayrollStructure"), "HrPayrollStructure class not found"
+        assert not hasattr(mod.HrPayrollStructure, "_l10n_ca_clone_rules_to_salaried"), (
+            "_l10n_ca_clone_rules_to_salaried must be removed from HrPayrollStructure"
         )
 
-    def test_repair_no_error_when_source_rule_has_no_target_match(self):
-        """Repair pass does not raise when a source rule has no matching target rule."""
-        src_rule = _make_rule("ORPHAN", 1)
-        tgt_rule = _make_rule("OTHER", 10)
-        # Should complete without exception; no patches produced
-        _, _, patches = _run_repair([src_rule], [tgt_rule])
-        assert patches == {}
-
-    def test_repair_failing_write_does_not_abort_rest(self):
-        """A failing write() on one rule must not prevent repairs on other rules."""
-        src1 = _make_rule("GROSS", 1)
-        src1.account_debit.id = 5410
-        src2 = _make_rule("NET", 2)
-        src2.account_debit.id = 5420
-        tgt1 = _make_rule("GROSS", 10, extra_fields={"account_debit": None})
-        tgt2 = _make_rule("NET", 20, extra_fields={"account_debit": None})
-        # Simulate GROSS write() raising — NET should still be patched
-        _, _, patches = _run_repair([src1, src2], [tgt1, tgt2], fail_codes={"GROSS"})
-        assert "NET" in patches, "NET repair must proceed even when GROSS write() fails"
-        assert "GROSS" not in patches
+    def test_module_has_diagnostic_register_hook(self):
+        """hr_payroll_structure.py must still have a _register_hook for diagnostics."""
+        import importlib.util
+        path = pathlib.Path(__file__).parent.parent / "models" / "hr_payroll_structure.py"
+        spec = importlib.util.spec_from_file_location("hr_payroll_structure", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        assert hasattr(mod.HrPayrollStructure, "_register_hook"), (
+            "_register_hook must remain for startup diagnostics"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -604,4 +364,3 @@ class TestGetPaidAmount:
         )
         result = _simulate_get_paid_amount(payslip, 1500.0)
         assert result == 1500.0, "Hourly wage_type should not scale by 12/periods"
-

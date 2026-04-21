@@ -139,12 +139,18 @@ def _fed_bpa(annual_income: float) -> float:
 
 def _fed_tax(gross: float, periods: int, ytd_cpp: float = 0.0,
              ytd_cpp2: float = 0.0, ytd_ei: float = 0.0,
-             ytd_pensionable: float = 0.0) -> float:
+             ytd_pensionable: float = 0.0,
+             apply_bpa_phase_out: bool = True) -> float:
     """Corrected FED_TAX rule: income reduced by enhanced CPP + CPP2; K1 += CEA.
 
     U1 (income deduction) uses per-period contribution × periods — NO annual cap.
     K2 (non-refundable credit) uses the capped projected annual contribution.
     See CRA T4127 §5.2 for the distinction.
+
+    apply_bpa_phase_out: when True (default for backward compatibility), applies the
+    CRA T4127 §5.1 phase-out of the enhanced BPA for high earners. When False, the
+    full BPA maximum is used, matching CRA PDOC / Wave / QuickBooks / ADP behavior.
+    The new l10n_ca_apply_bpa_phase_out field on hr.version defaults to False.
     """
     current_cpp = _cpp_ee(gross, periods, ytd_cpp)
     current_cpp2 = _cpp2_ee(gross, periods, ytd_cpp2, ytd_pensionable)
@@ -165,7 +171,7 @@ def _fed_tax(gross: float, periods: int, ytd_cpp: float = 0.0,
     # T4127: annual income = P*I - U1 (U1 = enhanced CPP + CPP2)
     annual_income = gross * periods - annual_enhanced_cpp - annual_cpp2_full
 
-    bpa = _fed_bpa(annual_income)
+    bpa = _fed_bpa(annual_income) if apply_bpa_phase_out else _BPA_MAX
     tax = _progressive_tax(annual_income, _FED_BRACKETS)
     k1  = (bpa + _CEA) * _FED_BRACKETS[0][1]      # includes Canada Employment Amount
     k2  = (annual_cpp_base + annual_ei_capped) * _FED_BRACKETS[0][1]  # base CPP + EI only
@@ -849,3 +855,108 @@ class TestOn2500BiweeklyOhp:
         assert total == pytest.approx(131.48, abs=0.10), (
             f"Provincial + OHP expected ~131.48 (PDOC: 131.46), got {total}"
         )
+
+
+# ---------------------------------------------------------------------------
+# BPA phase-out toggle regression tests (v1.9)
+# ---------------------------------------------------------------------------
+
+class TestBpaPhaseOutToggle:
+    """Regression tests for the l10n_ca_apply_bpa_phase_out configurable toggle.
+
+    The new per-contract Boolean field (default OFF) allows customers to choose
+    between strict CRA T4127 §5.1 phase-out (ON) and PDOC-matching behavior (OFF).
+
+    Reference: Nova Scotia, biweekly (26 pp/yr).
+
+    Verification approach (from issue):
+      A = gross*P - U1;  for $10,000 biweekly A approx 257,435 (inside the phase-out band).
+
+    | Toggle | Annual K1                        | Annual fed tax | Per-period |
+    |--------|----------------------------------|----------------|------------|
+    | ON     | phased BPA * 0.14                | 56,032         | approx 2,155.09 |
+    | OFF    | (_BPA_MAX + _CEA) * 0.14 = 2,513.28 | 55,808      | approx 2,146.47 |
+
+    PDOC expected (phase-out OFF): $2,146.45 (within +-$0.10 of formula).
+    """
+
+    GROSS   = 10_000.0
+    PERIODS = 26
+
+    def test_federal_tax_phase_out_off_matches_pdoc(self):
+        """Phase-out OFF (default): Federal Tax approx $2,146.45 (PDOC parity, within +-$0.10).
+
+        With phase-out OFF the full BPA max (_BPA_MAX = $16,452) is used regardless of income.
+        K1 = (_BPA_MAX + CEA) * lowest_rate = (_BPA_MAX + 1,500) * 0.14 = 2,513.28.
+        Annual income A approx 257,435 falls in the 4th bracket -> lower withholding vs phase-out ON.
+        """
+        fed = _fed_tax(self.GROSS, self.PERIODS, apply_bpa_phase_out=False)
+        assert fed == pytest.approx(2146.45, abs=0.10), (
+            f"Phase-out OFF: FED_TAX expected approx $2,146.45 (PDOC), got {fed}"
+        )
+
+    def test_federal_tax_phase_out_on_preserves_current_behavior(self):
+        """Phase-out ON: Federal Tax approx $2,155.09 (preserves pre-v1.9 behavior).
+
+        With phase-out ON the BPA is linearly interpolated between _BPA_MAX ($16,452)
+        and _BPA_MIN ($14,829) for incomes in the range _BPA_PHASE_START–_BPA_PHASE_END.
+        At A approx 257,435 the BPA is phased almost to its minimum, so K1 is smaller
+        and more tax is withheld.
+        """
+        fed = _fed_tax(self.GROSS, self.PERIODS, apply_bpa_phase_out=True)
+        assert fed == pytest.approx(2155.09, abs=0.10), (
+            f"Phase-out ON: FED_TAX expected approx $2,155.09 (pre-v1.9 behavior), got {fed}"
+        )
+
+    def test_phase_out_on_withholds_more_than_off(self):
+        """Phase-out ON always withholds ≥ phase-out OFF for high earners."""
+        fed_on  = _fed_tax(self.GROSS, self.PERIODS, apply_bpa_phase_out=True)
+        fed_off = _fed_tax(self.GROSS, self.PERIODS, apply_bpa_phase_out=False)
+        assert fed_on > fed_off, (
+            f"Phase-out ON ({fed_on}) must withhold more than phase-out OFF ({fed_off}) "
+            f"for incomes inside the phase-out band."
+        )
+
+    def test_low_earner_unchanged_by_toggle(self):
+        """NS @ $2,000 biweekly: toggle has no effect (income below phase-out band).
+
+        Annual income ≈ $51,515 < $181,440 (phase-out start) — both settings must
+        produce the same $163.23 per-period federal tax.
+        """
+        gross_low = 2000.0
+        fed_on  = _fed_tax(gross_low, self.PERIODS, apply_bpa_phase_out=True)
+        fed_off = _fed_tax(gross_low, self.PERIODS, apply_bpa_phase_out=False)
+        assert fed_on == pytest.approx(163.23, abs=0.02), (
+            f"Phase-out ON at $2,000 biweekly expected $163.23, got {fed_on}"
+        )
+        assert fed_off == pytest.approx(163.23, abs=0.02), (
+            f"Phase-out OFF at $2,000 biweekly expected $163.23, got {fed_off}"
+        )
+        assert fed_on == fed_off, (
+            f"Toggle must not change result below phase-out band: ON={fed_on}, OFF={fed_off}"
+        )
+
+    def test_above_phase_out_band_difference_equals_bpa_spread(self):
+        """NS @ approx $300,000/yr (above phase-out band): difference = (_BPA_MAX - _BPA_MIN) * 0.14 / periods.
+
+        Above _BPA_PHASE_END the phased BPA reaches its minimum (_BPA_MIN = $14,829).
+        The per-period difference between phase-out ON and OFF must equal exactly the
+        BPA spread prorated at the lowest federal rate and divided by pay periods.
+
+        expected_diff = (_BPA_MAX - _BPA_MIN) * _FED_BRACKETS[0][1] / PERIODS
+                      = 1,623 * 0.14 / 26 approx $8.74
+        """
+        gross_high = 300_000 / self.PERIODS
+        fed_on  = _fed_tax(gross_high, self.PERIODS, apply_bpa_phase_out=True)
+        fed_off = _fed_tax(gross_high, self.PERIODS, apply_bpa_phase_out=False)
+
+        expected_diff = (_BPA_MAX - _BPA_MIN) * _FED_BRACKETS[0][1] / self.PERIODS
+        assert fed_on == pytest.approx(fed_off + expected_diff, abs=0.05), (
+            f"Above phase-out band: difference expected {expected_diff:.2f}, "
+            f"got ON={fed_on}, OFF={fed_off}, diff={fed_on - fed_off:.2f}"
+        )
+        # Phase-out ON uses bpa_min; verify it gives more withholding
+        assert fed_on > fed_off, (
+            f"Phase-out ON must withhold more above the phase-out band: ON={fed_on}, OFF={fed_off}"
+        )
+

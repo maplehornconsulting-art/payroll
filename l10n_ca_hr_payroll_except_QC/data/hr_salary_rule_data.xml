@@ -326,12 +326,19 @@ bpa_min = payslip._rule_parameter('l10n_ca_fed_bpa_min')
 phase_out_start = payslip._rule_parameter('l10n_ca_fed_bracket_3')
 phase_out_end = payslip._rule_parameter('l10n_ca_fed_bracket_4')
 
-if annual_income &lt;= phase_out_start:
-    fed_bpa = bpa_max
-elif annual_income &gt;= phase_out_end:
-    fed_bpa = bpa_min
+# CRA T4127 §5.1 defines a phase-out of the enhanced BPA between brackets 3 and 4
+# for high earners. CRA PDOC, Wave, QuickBooks, ADP, and Ceridian do NOT apply it
+# (they honor the TD1 amount as filed). Both approaches are CRA-acceptable; the
+# checkbox lets the customer choose. Default is OFF to match PDOC behavior.
+if version.l10n_ca_apply_bpa_phase_out:
+    if annual_income &lt;= phase_out_start:
+        fed_bpa = bpa_max
+    elif annual_income &gt;= phase_out_end:
+        fed_bpa = bpa_min
+    else:
+        fed_bpa = bpa_max - (bpa_max - bpa_min) * (annual_income - phase_out_start) / (phase_out_end - phase_out_start)
 else:
-    fed_bpa = bpa_max - (bpa_max - bpa_min) * (annual_income - phase_out_start) / (phase_out_end - phase_out_start)
+    fed_bpa = bpa_max
 
 tax = 0
 prev_bracket = 0

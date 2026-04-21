@@ -31,7 +31,7 @@ Developed by **MapleHorn Consulting Inc.** — Canadian payroll experts.
 - **CPP (Canada Pension Plan)** — Employee & employer contributions with YMPE limits, basic exemption, and annual maximums
 - **CPP2 (Second Additional CPP)** — Automatic calculation for earnings above YMPE up to the CPP2 ceiling
 - **EI (Employment Insurance)** — Employee premiums and employer contributions (1.4× multiplier)
-- **Federal Income Tax** — 5-bracket progressive tax with Basic Personal Amount (BPA) phase-out for high earners
+- **Federal Income Tax** — 5-bracket progressive tax with Basic Personal Amount (BPA) phase-out configurable per contract (default OFF to match PDOC)
 - **Additional Federal Tax** — Support for employee-requested additional withholding (TD1 Section 2)
 
 ### 🏢 Pay Structure Types — Hourly & Salaried
@@ -91,7 +91,7 @@ Dynamic province detection from the employee record. One salary structure works 
 - **Bi-weekly (26 pay periods/year)** payroll cycle
 - CPP/EI calculated on **gross earnings** (not reduced by RRSP/Union)
 - Federal & provincial tax calculated on **taxable income** (after RRSP/Union)
-- Federal BPA phase-out between Bracket 3 and Bracket 4 for high earners
+- **Federal BPA phase-out (configurable per contract; default OFF to match PDOC)** — between Bracket 3 and Bracket 4 for high earners
 - Ontario surtax on basic provincial tax exceeding thresholds
 - Ontario Health Premium based on annual taxable income tiers
 - All amounts properly annualized and de-annualized
@@ -348,6 +348,36 @@ A future `l10n_ca_qc_hr_payroll` module may be developed for Quebec.
 ---
 
 ## Changelog
+
+### v1.9 (April 2026) — Configurable Federal BPA phase-out
+
+- ✅ New per-contract Boolean `l10n_ca_apply_bpa_phase_out` (default **OFF**).
+- ✅ Default behavior now matches CRA PDOC, Wave, QuickBooks, ADP, and Ceridian
+     for high earners — no more ~$8/period over-withhold mismatch with PDOC.
+- ✅ Customers wanting strict CRA T4127 §5.1 conformance can flip the checkbox
+     **ON** per contract.
+- ✅ Four regression tests: NS $10k biweekly phase-out OFF (≈$2,146.45 PDOC), phase-out ON
+     (≈$2,155.09 pre-v1.9), $2k biweekly unchanged, $300k/yr difference = (bpa_max−bpa_min)×0.14/26.
+- ⚠️  **Behavior change for high earners** (annual taxable income > $181,440): federal tax
+     withheld will drop slightly with the new default. No CRA penalty exposure — the
+     employee reconciles on their T1 filing.
+- ⚠️  Run `-u l10n_ca_hr_payroll_except_QC` to add the new field.
+
+#### BPA phase-out trade-off
+
+At high incomes (annual taxable income $181,440–$258,482), CRA T4127 §5.1 phases the
+federal BPA from $16,452 down to $14,829. This is letter-of-the-law correct, but CRA
+PDOC and most major Canadian payroll products (Wave, QuickBooks, ADP, Ceridian) do
+**not** apply this phase-out — they honor the TD1 amount verbatim.
+
+| Approach | Annual K1 | Annual fed tax | Per-period (26×) |
+|---|---|---|---|
+| Phase-out ON (T4127 §5.1) | phased BPA × 0.14 | higher | **≈ $2,155.09** |
+| Phase-out OFF (PDOC/default) | (BPA_MAX + CEA) = $17,952 × 0.14 = $2,513.28 | lower | **≈ $2,146.45** |
+
+Both approaches are CRA-acceptable. Phase-out ON causes over-withholding (~$224/yr for a
+$10,000 biweekly earner); phase-out OFF causes slight under-withholding that the employee
+reconciles on their T1 filing. There is no CRA penalty risk in either direction.
 
 ### v1.8 (April 2026) — High-earner U1 income deduction fix
 

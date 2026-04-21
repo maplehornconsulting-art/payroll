@@ -534,11 +534,12 @@ def _ohp_annual(annual_income: float) -> float:
     ohp = 0.0
     prev = 0
     for upto, base, rate, cap in _OHP_TIERS:
-        if upto is None or annual_income <= upto:
+        if upto is None:
+            ohp = base  # flat top tier
+            break
+        if annual_income <= upto:
             delta = annual_income - prev
             ohp = base + (min(delta * rate, cap) if cap else delta * rate)
-            if upto is None:
-                ohp = base
             break
         prev = upto
     return ohp
@@ -648,10 +649,15 @@ class TestOn2500BiweeklyOhp:
         )
 
     def test_prov_plus_ohp_within_pdoc_tolerance(self):
-        """Provincial tax + OHP must be ≈ $131.48 (PDOC: $131.46, within ±$0.10)."""
+        """Provincial tax + OHP must be ≈ $131.48 (PDOC: $131.46, within ±$0.10).
+
+        Derivation: ON prov tax ≈ $108.40 + OHP $23.08 = $131.48/period.
+        PDOC bundles OHP into "Provincial tax deduction" → $131.46.
+        """
         prov = _prov_tax(self.GROSS, self.PERIODS, _ON_BRACKETS, _ON_BPA, _ON_SURTAX)
         ohp  = _ohp(self.GROSS, self.PERIODS)
         total = prov + ohp
+        # 108.40 (PROV_TAX) + 23.08 (OHP) = 131.48; PDOC: 131.46
         assert total == pytest.approx(131.48, abs=0.10), (
             f"Provincial + OHP expected ~131.48 (PDOC: 131.46), got {total}"
         )

@@ -570,7 +570,7 @@ class TestHighEarner4000BiweeklyNsTax:
         was capped at $4,230.45 instead of using period × periods = $5,979.74).
         """
         fed = _fed_tax(self.GROSS, self.PERIODS)
-        assert fed == pytest.approx(544.11, abs=0.50), (
+        assert fed == pytest.approx(544.11, abs=0.10), (
             f"FED_TAX at $4,000 biweekly expected ~$544.11 (uncapped U1), got {fed}"
         )
 
@@ -580,7 +580,7 @@ class TestHighEarner4000BiweeklyNsTax:
         Buggy capped value was ~$493.64.
         """
         prov = _prov_tax(self.GROSS, self.PERIODS, _NS_BRACKETS, _NS_BPA, [])
-        assert prov == pytest.approx(491.66, abs=0.50), (
+        assert prov == pytest.approx(491.66, abs=0.10), (
             f"NS PROV_TAX at $4,000 biweekly expected ~$491.66 (uncapped U1), got {prov}"
         )
 

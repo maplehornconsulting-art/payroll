@@ -349,6 +349,13 @@ A future `l10n_ca_qc_hr_payroll` module may be developed for Quebec.
 
 ## Changelog
 
+### v1.6 (April 2026) — EI cap fix, CPP2 YTD-based triggering
+
+- ✅ **Bug #1 — EI per-period insurable cap removed**: EI premium is now computed as `gross × rate` (T4127 §4.1). The old code incorrectly capped insurable earnings at `ei_max_insurable / periods` per period, producing an EI of $43.20 instead of the correct $65.20 at $4,000 biweekly. The annual maximum premium (`ei_max_premium`) remains the only cap.
+- ✅ **Bug #2 — CPP2 triggers by YTD pensionable earnings, not per-period YMPE**: CPP2 now applies only when the employee's cumulative pensionable earnings for the year exceed the annual YMPE ($74,600). The old code prorated YMPE per period (`YMPE / periods`), incorrectly charging CPP2 from pay #1 for high earners. At $4,000 biweekly, CPP2 correctly starts at pay #20 (when YTD pensionable crosses $74,600).
+- ✅ **New helper `_l10n_ca_ytd_pensionable_earnings()`** on `hr.payslip` — sums pensionable earnings from prior confirmed payslips in the same calendar year (used internally by the CPP2_EE rule).
+- ⚠️  **Upgrade required**: run `-u l10n_ca_hr_payroll_except_QC` on existing databases so the updated CPP2_EE and EI_EE salary rules take effect on newly computed payslips.
+
 ### v1.5 (April 2026) — Salaried structure parity
 
 - ✅ Replaced `rule.copy()` with explicit field-by-field clone in `_l10n_ca_clone_rules_to_salaried` — fixes missing accounting integration (`account_debit`, `account_credit`) on salaried payslips

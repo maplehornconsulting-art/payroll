@@ -82,30 +82,33 @@ def _cpp_ee(gross: float, periods: int, ytd: float = 0.0) -> float:
     return round(min(period_contribution, remaining_annual), 2)
 
 
-def _cpp2_ee(gross: float, periods: int, ytd: float = 0.0) -> float:
-    """Replicate the fixed CPP2_EE rule.
+def _cpp2_ee(gross: float, periods: int, ytd: float = 0.0,
+             ytd_pensionable: float = 0.0) -> float:
+    """Replicate the corrected CPP2_EE rule.
 
-    CPP2 only applies when gross > period YMPE.  Same YTD-cumulative cap
-    pattern as CPP_EE.
+    CRA T4127 §4.4: CPP2 applies only once the employee's YTD pensionable
+    earnings exceed the annual YMPE.  YMPE is NOT prorated per period.
     """
-    period_ympe = _CPP_YMPE / periods
-    period_ceiling = _CPP2_CEILING / periods
-    if gross <= period_ympe:
+    period_exemption = _CPP_EXEMPTION / periods
+    period_pensionable = max(gross - period_exemption, 0.0)
+    new_ytd_pensionable = ytd_pensionable + period_pensionable
+    if new_ytd_pensionable <= _CPP_YMPE:
         return 0.0
-    cpp2_pensionable = min(gross, period_ceiling) - period_ympe
+    band_low = max(ytd_pensionable, _CPP_YMPE)
+    band_high = min(new_ytd_pensionable, _CPP2_CEILING)
+    cpp2_pensionable = max(band_high - band_low, 0.0)
     period_contribution = cpp2_pensionable * _CPP2_RATE
     remaining_annual = max(_CPP2_MAX - ytd, 0.0)
     return round(min(period_contribution, remaining_annual), 2)
 
 
 def _ei_ee(gross: float, periods: int, ytd: float = 0.0) -> float:
-    """Replicate the fixed EI_EE rule.
+    """Replicate the corrected EI_EE rule.
 
-    Applies the per-period MIE insurable cap first, then the annual premium
-    cumulative cap against ytd_ei.
+    CRA T4127 §4.1: EI premium = gross × rate.  The only cap is the annual
+    premium maximum; there is no per-period insurable ceiling.
     """
-    insurable = min(gross, _EI_MAX_INSURABLE / periods)
-    period_premium = insurable * _EI_RATE
+    period_premium = gross * _EI_RATE
     remaining_annual = max(_EI_MAX_PREMIUM - ytd, 0.0)
     return round(min(period_premium, remaining_annual), 2)
 
@@ -138,18 +141,22 @@ class TestFirstPayslipHighEarner:
         assert result == pytest.approx(expected, abs=0.02)
 
     def test_cpp2_ee_first_payslip(self):
-        """CPP2_EE on first payslip must NOT be annual_max/52."""
-        result = _cpp2_ee(self.GROSS, self.PERIODS, ytd=0.0)
-        # Buggy value was cpp2_max / 52 ≈ 8.00; correct value much larger.
-        assert result != pytest.approx(_CPP2_MAX / 52, abs=0.10), (
+        """CPP2_EE on first payslip is $0 — YTD pensionable has not crossed YMPE.
+
+        CRA T4127 §4.4: CPP2 applies only once cumulative pensionable earnings
+        exceed the annual YMPE ($73,200 in these test params).  On the very
+        first payslip (YTD pensionable = 0), even a $9,625/wk earner has not
+        yet crossed YMPE, so CPP2 must be $0.  At $9,625/wk, the YMPE is
+        crossed partway through week 8 (7 × 9,557.69 ≈ 66,904 < 73,200).
+        """
+        result = _cpp2_ee(self.GROSS, self.PERIODS, ytd=0.0, ytd_pensionable=0.0)
+        assert result == 0.0, (
+            f"CPP2_EE at week 1 must be $0 (YTD pensionable 0 < YMPE {_CPP_YMPE}), got {result}"
+        )
+        # The old per-period-smearing bug gave ≈ cpp2_max/52 = 7.62.
+        assert result != pytest.approx(_CPP2_MAX / self.PERIODS, abs=0.10), (
             "CPP2_EE must not be the per-period smeared max (bug)"
         )
-        # Correct: cpp2_pensionable = min(9625, 85400/52) − 73200/52
-        period_ympe = _CPP_YMPE / self.PERIODS
-        period_ceiling = _CPP2_CEILING / self.PERIODS
-        expected_pensionable = min(self.GROSS, period_ceiling) - period_ympe
-        expected = round(min(expected_pensionable * _CPP2_RATE, _CPP2_MAX), 2)
-        assert result == pytest.approx(expected, abs=0.02)
 
     def test_cpp_ee_gt_buggy_amount(self):
         """Correct CPP_EE must be substantially larger than the buggy amount."""
@@ -322,11 +329,17 @@ class TestCpp2YtdCap:
         assert result == 0.0
 
     def test_cpp2_partial_ytd(self):
-        """CPP2 deduction limited to remaining annual headroom when headroom < period."""
-        # CPP2 period contribution at $9,625/wk is small (≈$9.38) due to the
-        # narrow YMPE→ceiling band.  To test the YTD cap we need remaining < period.
-        ytd = _CPP2_MAX - 5.0   # leaves only $5 headroom; period contribution > $5
-        result = _cpp2_ee(self.GROSS, self.PERIODS, ytd=ytd)
+        """CPP2 deduction limited to remaining annual headroom when headroom < period.
+
+        CPP2 only triggers when ytd_pensionable crosses YMPE.  Use
+        ytd_pensionable just above YMPE so CPP2 is active, then verify the
+        annual cap (remaining = $5) limits the deduction.
+        """
+        # Place ytd_pensionable just above YMPE so CPP2 triggers this period.
+        ytd_pensionable = _CPP_YMPE + 1.0
+        ytd = _CPP2_MAX - 5.0   # leaves only $5 headroom; period contribution >> $5
+        result = _cpp2_ee(self.GROSS, self.PERIODS, ytd=ytd,
+                          ytd_pensionable=ytd_pensionable)
         remaining = _CPP2_MAX - ytd  # = 5.0
         assert result == pytest.approx(remaining, abs=0.02)
 
@@ -337,12 +350,19 @@ class TestCpp2YtdCap:
         assert result == 0.0
 
     def test_cpp2_annual_accumulation(self):
-        """Sum of CPP2 over many payslips must not exceed annual max."""
-        ytd = 0.0
+        """Sum of CPP2 over 52 payslips must not exceed annual max.
+
+        Tracks ytd_pensionable correctly to simulate real YTD-based CPP2.
+        """
+        ytd_cpp2 = 0.0
+        ytd_pensionable = 0.0
+        period_exemption = _CPP_EXEMPTION / self.PERIODS
         for _ in range(52):
-            contribution = _cpp2_ee(self.GROSS, self.PERIODS, ytd=ytd)
-            ytd += contribution
-        assert ytd <= _CPP2_MAX + 0.01
+            contribution = _cpp2_ee(self.GROSS, self.PERIODS, ytd=ytd_cpp2,
+                                    ytd_pensionable=ytd_pensionable)
+            ytd_cpp2 += contribution
+            ytd_pensionable += max(self.GROSS - period_exemption, 0.0)
+        assert ytd_cpp2 <= _CPP2_MAX + 0.01
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +370,12 @@ class TestCpp2YtdCap:
 # ---------------------------------------------------------------------------
 
 class TestEiAnnualCap:
-    """EI: per-period MIE insurable cap is retained; annual premium cap enforced."""
+    """EI: annual premium cap enforced; no per-period insurable ceiling.
+
+    CRA T4127 §4.1: EI premium = gross × rate.  The annual maximum premium
+    ($1,091.22 in these test params) is the only cap.  There is no per-period
+    insurable ceiling (that was a bug).
+    """
 
     GROSS = 9625.0
     PERIODS = 52
@@ -362,20 +387,27 @@ class TestEiAnnualCap:
 
     def test_ei_partial_ytd(self):
         """EI deduction limited to remaining annual premium headroom when headroom < period."""
-        # EI period premium at $9,625/wk is capped at the per-period insurable
-        # amount (≈$20.97).  To test the annual YTD cap we need remaining < $20.97.
+        # EI period premium at $9,625/wk is 9625 × 0.0166 = 159.78.
+        # To test the annual YTD cap: remaining ($10) < period premium ($159.78).
         ytd = _EI_MAX_PREMIUM - 10.0   # leaves only $10 headroom
         result = _ei_ee(self.GROSS, self.PERIODS, ytd=ytd)
         remaining = _EI_MAX_PREMIUM - ytd  # = 10.0
         assert result == pytest.approx(remaining, abs=0.01)
 
-    def test_ei_per_period_insurable_cap_retained(self):
-        """Per-period MIE insurable cap still applies when annual cap is not reached."""
-        # With ytd=0, the annual cap does not bind for normal-wage earners.
+    def test_ei_high_earner_no_per_period_insurable_cap(self):
+        """High earner: EI = gross × rate (no per-period insurable ceiling).
+
+        Bug fix verification: the old code capped insurable earnings at
+        max_insurable / periods = $65,700/52 ≈ $1,263.46 and produced
+        EI ≈ $20.97/period.  The correct calculation is gross × rate = $159.78.
+        """
         result = _ei_ee(self.GROSS, self.PERIODS, ytd=0.0)
-        # The per-period insurable cap limits premiums to ≈ max_insurable/periods × rate.
-        period_insurable_limit = (_EI_MAX_INSURABLE / self.PERIODS) * _EI_RATE
-        assert result == pytest.approx(period_insurable_limit, abs=0.02)
+        expected = round(min(self.GROSS * _EI_RATE, _EI_MAX_PREMIUM), 2)
+        assert result == pytest.approx(expected, abs=0.02)
+        buggy_amount = round((_EI_MAX_INSURABLE / self.PERIODS) * _EI_RATE, 2)
+        assert result > buggy_amount, (
+            f"EI {result} must be larger than the old buggy per-period cap {buggy_amount}"
+        )
 
     def test_ei_annual_total_does_not_exceed_max(self):
         """Accumulated EI over 52 weekly payslips must not exceed annual max."""
@@ -386,11 +418,11 @@ class TestEiAnnualCap:
         assert ytd <= _EI_MAX_PREMIUM + 0.01
 
     def test_ei_ytd_zero_low_earner_unchanged(self):
-        """Low earner below insurable cap: EI unaffected by YTD fix."""
+        """Low earner: EI computed as gross × rate (same result as before since below old cap)."""
         gross = 1203.13
         result = _ei_ee(gross, self.PERIODS, ytd=0.0)
-        expected_insurable = min(gross, _EI_MAX_INSURABLE / self.PERIODS)
-        expected = round(min(expected_insurable * _EI_RATE, _EI_MAX_PREMIUM), 2)
+        # New formula: gross × rate (no per-period cap)
+        expected = round(min(gross * _EI_RATE, _EI_MAX_PREMIUM), 2)
         assert result == pytest.approx(expected, abs=0.01)
 
 

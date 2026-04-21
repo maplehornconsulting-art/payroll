@@ -110,22 +110,33 @@ def _cpp_ee(gross: float, periods: int, ytd: float = 0.0) -> float:
     return round(min(period_contribution, remaining_annual), 2)
 
 
-def _cpp2_ee(gross: float, periods: int, ytd: float = 0.0) -> float:
-    """Current-period CPP2_EE contribution (positive amount)."""
-    period_ympe = _CPP_YMPE / periods
-    period_ceiling = _CPP2_CEILING / periods
-    if gross <= period_ympe:
+def _cpp2_ee(gross: float, periods: int, ytd: float = 0.0,
+             ytd_pensionable: float = 0.0) -> float:
+    """Current-period CPP2_EE contribution (positive amount).
+
+    CRA T4127 §4.4: CPP2 applies only once YTD pensionable earnings exceed
+    the annual YMPE.  YMPE is NOT prorated per period.
+    """
+    period_exemption = _CPP_EXEMPTION / periods
+    period_pensionable = max(gross - period_exemption, 0.0)
+    new_ytd_pensionable = ytd_pensionable + period_pensionable
+    if new_ytd_pensionable <= _CPP_YMPE:
         return 0.0
-    cpp2_pensionable = min(gross, period_ceiling) - period_ympe
+    band_low = max(ytd_pensionable, _CPP_YMPE)
+    band_high = min(new_ytd_pensionable, _CPP2_CEILING)
+    cpp2_pensionable = max(band_high - band_low, 0.0)
     period_contribution = cpp2_pensionable * _CPP2_RATE
     remaining_annual = max(_CPP2_MAX - ytd, 0.0)
     return round(min(period_contribution, remaining_annual), 2)
 
 
 def _ei_ee(gross: float, periods: int, ytd: float = 0.0) -> float:
-    """Current-period EI_EE premium (positive amount)."""
-    insurable = min(gross, _EI_MAX_INSURABLE / periods)
-    period_premium = insurable * _EI_RATE
+    """Current-period EI_EE premium (positive amount).
+
+    CRA T4127 §4.1: EI premium = gross × rate.  The only cap is the annual
+    premium maximum; there is no per-period insurable ceiling.
+    """
+    period_premium = gross * _EI_RATE
     remaining_annual = max(_EI_MAX_PREMIUM - ytd, 0.0)
     return round(min(period_premium, remaining_annual), 2)
 
@@ -192,7 +203,8 @@ def _compute_k2p(ytd_cpp: float, current_cpp: float,
 
 
 def _fed_tax_full(gross: float, periods: int, periods_elapsed: int,
-                  ytd_cpp: float, ytd_cpp2: float, ytd_ei: float) -> float:
+                  ytd_cpp: float, ytd_cpp2: float, ytd_ei: float,
+                  ytd_pensionable: float = 0.0) -> float:
     """Replica of the full FED_TAX rule (tax - K1 - K2) / periods.
 
     Implements the corrected T4127 algorithm:
@@ -201,7 +213,7 @@ def _fed_tax_full(gross: float, periods: int, periods_elapsed: int,
     - K2 uses only the base CPP (4.95/5.95 portion); no CPP2.
     """
     current_cpp = _cpp_ee(gross, periods, ytd_cpp)
-    current_cpp2 = _cpp2_ee(gross, periods, ytd_cpp2)
+    current_cpp2 = _cpp2_ee(gross, periods, ytd_cpp2, ytd_pensionable)
     current_ei = _ei_ee(gross, periods, ytd_ei)
     annual_cpp = _projected_annual_contribution(
         ytd_cpp, current_cpp, periods, periods_elapsed, _CPP_MAX)
@@ -222,13 +234,14 @@ def _fed_tax_full(gross: float, periods: int, periods_elapsed: int,
 
 
 def _prov_tax_on_full(gross: float, periods: int, periods_elapsed: int,
-                      ytd_cpp: float, ytd_cpp2: float, ytd_ei: float) -> float:
+                      ytd_cpp: float, ytd_cpp2: float, ytd_ei: float,
+                      ytd_pensionable: float = 0.0) -> float:
     """Replica of the full PROV_TAX rule for Ontario (with surtax and K2P).
 
     Same income reduction as federal; CEA is federal-only and not used here.
     """
     current_cpp = _cpp_ee(gross, periods, ytd_cpp)
-    current_cpp2 = _cpp2_ee(gross, periods, ytd_cpp2)
+    current_cpp2 = _cpp2_ee(gross, periods, ytd_cpp2, ytd_pensionable)
     current_ei = _ei_ee(gross, periods, ytd_ei)
     annual_cpp = _projected_annual_contribution(
         ytd_cpp, current_cpp, periods, periods_elapsed, _CPP_MAX)
@@ -275,12 +288,29 @@ class TestScenario1Week1HighEarner:
         assert result == pytest.approx(_CPP_MAX, abs=0.01)
 
     def test_projected_cpp2_equals_annual_max(self):
-        """Week 1 high earner: projected CPP2 = cpp2_max."""
-        ytd = 0.0
-        current = _cpp2_ee(self.GROSS, self.PERIODS, ytd)
+        """Week 1 high earner: CPP2 = $0 because YTD pensionable < YMPE.
+
+        CRA T4127 §4.4: CPP2 triggers only after cumulative pensionable
+        earnings cross the annual YMPE ($73,200 in these test params).
+        At week 1 (ytd_pensionable = 0), even a $9,625/wk earner has not
+        yet reached YMPE — CPP2 must be $0 and projected annual CPP2 = $0.
+
+        CPP2 first triggers at week 8 for this earner:
+          weeks 1-7: ytd_pensionable = 7 × 9,557.69 = 66,904 < YMPE → CPP2 = 0
+          week 8: ytd_pensionable = 66,904, new_ytd = 76,461 > YMPE → CPP2 > 0
+        """
+        ytd_cpp2 = 0.0
+        ytd_pensionable = 0.0  # first payslip of year
+        current = _cpp2_ee(self.GROSS, self.PERIODS, ytd_cpp2, ytd_pensionable)
+        assert current == 0.0, (
+            f"CPP2 at week 1 must be $0 (ytd_pensionable=0 < YMPE={_CPP_YMPE}), "
+            f"got {current}"
+        )
         result = _projected_annual_contribution(
-            ytd, current, self.PERIODS, self.PERIODS_ELAPSED, _CPP2_MAX)
-        assert result == pytest.approx(_CPP2_MAX, abs=0.01)
+            ytd_cpp2, current, self.PERIODS, self.PERIODS_ELAPSED, _CPP2_MAX)
+        assert result == pytest.approx(0.0, abs=0.01), (
+            f"Projected annual CPP2 at week 1 must be $0, got {result}"
+        )
 
     def test_projected_ei_near_annual_max(self):
         """Week 1 high earner: projected EI ≈ ei_max (within ±$2 due to per-period MIE rounding).
@@ -353,19 +383,27 @@ class TestScenario2Week8PartialCap:
         assert result == pytest.approx(_CPP_MAX, abs=0.01)
 
     def test_k2_unchanged_from_week1(self):
-        """K2 for week 8 must be the same as week 1 (both use cpp_max)."""
-        # Week 1 K2
+        """K2 for week 8 must be the same as week 1 (both use cpp_max).
+
+        K2 = (base_cpp + ei) × rate — CPP2 does not appear in K2.  CPP2 first
+        triggers at week 8 for this earner (ytd_pensionable crosses YMPE), but
+        since K2 doesn't use CPP2, K2 must remain stable.
+        """
+        # Week 1 K2 (ytd_pensionable = 0, CPP2 = 0)
         k2_week1 = _compute_k2(0.0, _cpp_ee(self.GROSS, self.PERIODS, 0.0),
-                                 0.0, _cpp2_ee(self.GROSS, self.PERIODS, 0.0),
+                                 0.0, _cpp2_ee(self.GROSS, self.PERIODS, 0.0, 0.0),
                                  0.0, _ei_ee(self.GROSS, self.PERIODS, 0.0),
                                  self.PERIODS, 0)
-        # Week 8 K2
+        # Week 8 K2: simulate 7 payslips tracking ytd_pensionable
         ytd_cpp = self._build_ytd_cpp()
         current_cpp = _cpp_ee(self.GROSS, self.PERIODS, ytd_cpp)
         ytd_cpp2 = 0.0
+        ytd_pensionable = 0.0
+        period_exemption = _CPP_EXEMPTION / self.PERIODS
         for _ in range(7):
-            ytd_cpp2 += _cpp2_ee(self.GROSS, self.PERIODS, ytd_cpp2)
-        current_cpp2 = _cpp2_ee(self.GROSS, self.PERIODS, ytd_cpp2)
+            ytd_cpp2 += _cpp2_ee(self.GROSS, self.PERIODS, ytd_cpp2, ytd_pensionable)
+            ytd_pensionable += max(self.GROSS - period_exemption, 0.0)
+        current_cpp2 = _cpp2_ee(self.GROSS, self.PERIODS, ytd_cpp2, ytd_pensionable)
         ytd_ei = 0.0
         for _ in range(7):
             ytd_ei += _ei_ee(self.GROSS, self.PERIODS, ytd_ei)
@@ -418,13 +456,13 @@ class TestScenario3CapFullyConsumed:
         """K2 in week 9 (cpp=0 this period) must equal K2 in week 1."""
         # Week 1: no YTD, full period contribution
         k2_week1 = _compute_k2(0.0, _cpp_ee(self.GROSS, self.PERIODS, 0.0),
-                                 0.0, _cpp2_ee(self.GROSS, self.PERIODS, 0.0),
+                                 0.0, _cpp2_ee(self.GROSS, self.PERIODS, 0.0, 0.0),
                                  0.0, _ei_ee(self.GROSS, self.PERIODS, 0.0),
                                  self.PERIODS, 0)
-        # Week 9: CPP fully capped, EI may still be running
+        # Week 9: CPP fully capped, CPP2 assumed 0 for isolation (testing CPP K2 only)
         ytd_cpp = _CPP_MAX       # cap fully consumed after 8 payslips
         current_cpp = 0.0        # no CPP deducted this period
-        ytd_cpp2 = _CPP2_MAX     # also fully capped (for simplicity)
+        ytd_cpp2 = 0.0           # isolate CPP behaviour; CPP2 uses income deduction not K2
         current_cpp2 = 0.0
         ytd_ei = 0.0
         for _ in range(8):
@@ -440,12 +478,12 @@ class TestScenario3CapFullyConsumed:
     def test_k2p_same_week9_as_week1(self):
         """K2P in week 9 must equal K2P in week 1 (provincial credit preserved)."""
         k2p_week1 = _compute_k2p(0.0, _cpp_ee(self.GROSS, self.PERIODS, 0.0),
-                                   0.0, _cpp2_ee(self.GROSS, self.PERIODS, 0.0),
+                                   0.0, _cpp2_ee(self.GROSS, self.PERIODS, 0.0, 0.0),
                                    0.0, _ei_ee(self.GROSS, self.PERIODS, 0.0),
                                    self.PERIODS, 0)
         ytd_cpp = _CPP_MAX
         current_cpp = 0.0
-        ytd_cpp2 = _CPP2_MAX
+        ytd_cpp2 = 0.0           # isolate CPP behaviour; CPP2 uses income deduction not K2P
         current_cpp2 = 0.0
         ytd_ei = 0.0
         for _ in range(8):
@@ -459,22 +497,30 @@ class TestScenario3CapFullyConsumed:
         )
 
     def test_fed_tax_week9_consistent_with_week1(self):
-        """FED_TAX in week 9 must equal FED_TAX in week 1 (K2 not lost)."""
+        """FED_TAX in week 9 must be close to FED_TAX in week 1 (K2 not lost).
+
+        Uses ytd_cpp2=0 for both weeks to isolate the CPP/EI K2 effect.
+        CPP2 is an income deduction (not K2); keeping it at 0 in both cases
+        ensures the comparison reflects only the K2 projection fix.
+        """
         fed_week1 = _fed_tax_full(self.GROSS, self.PERIODS, 0,
-                                   0.0, 0.0, 0.0)
+                                   0.0, 0.0, 0.0, 0.0)
         fed_week9 = _fed_tax_full(self.GROSS, self.PERIODS, self.PERIODS_ELAPSED,
-                                   _CPP_MAX, _CPP2_MAX, 0.0)
+                                   _CPP_MAX, 0.0, 0.0, 0.0)
         assert fed_week9 == pytest.approx(fed_week1, abs=0.50), (
             f"Bug regression: FED_TAX jumped from {fed_week1} to {fed_week9} "
             f"when CPP cap hit (week 9); K2 credit must not be lost"
         )
 
     def test_prov_tax_week9_consistent_with_week1(self):
-        """ON PROV_TAX in week 9 must equal week 1 (K2P not lost)."""
+        """ON PROV_TAX in week 9 must be close to week 1 (K2P not lost).
+
+        Uses ytd_cpp2=0 for both weeks to isolate the CPP/EI K2P effect.
+        """
         prov_week1 = _prov_tax_on_full(self.GROSS, self.PERIODS, 0,
-                                        0.0, 0.0, 0.0)
+                                        0.0, 0.0, 0.0, 0.0)
         prov_week9 = _prov_tax_on_full(self.GROSS, self.PERIODS, self.PERIODS_ELAPSED,
-                                        _CPP_MAX, _CPP2_MAX, 0.0)
+                                        _CPP_MAX, 0.0, 0.0, 0.0)
         assert prov_week9 == pytest.approx(prov_week1, abs=0.50), (
             f"Bug regression: PROV_TAX jumped from {prov_week1} to {prov_week9} "
             f"when CPP cap hit (week 9); K2P credit must not be lost"

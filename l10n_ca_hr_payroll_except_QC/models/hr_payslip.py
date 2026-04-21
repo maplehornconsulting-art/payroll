@@ -166,6 +166,48 @@ class HrPayslip(models.Model):
 
         return base
 
+    def _l10n_ca_ytd_pensionable_earnings(self):
+        """Return YTD CPP pensionable earnings from prior confirmed payslips.
+
+        CPP2 triggers only when the employee's cumulative pensionable earnings
+        exceed the annual YMPE (T4127 §4.4).  This helper sums the per-period
+        pensionable amounts from prior done/paid payslips in the same calendar
+        year:
+
+            pensionable_per_slip = max(GROSS − period_exemption, 0)
+
+        The result is used by the CPP2_EE rule to determine whether this period
+        lands in the YMPE → CPP2-ceiling band.
+
+        Returns:
+            float: Year-to-date pensionable earnings (positive), 0.0 if none.
+        """
+        self.ensure_one()
+        try:
+            cpp_exemption = self._rule_parameter('l10n_ca_cpp_basic_exemption')
+        except Exception:
+            cpp_exemption = 3500.0
+        periods = self._l10n_ca_periods_per_year() or 1
+        period_exemption = cpp_exemption / periods
+
+        year = self.date_from.year
+        domain = [
+            ('employee_id', '=', self.employee_id.id),
+            ('state', 'in', ('done', 'paid')),
+            ('date_to', '<', self.date_from),
+            ('date_from', '>=', f'{year}-01-01'),
+        ]
+        if self.id:
+            domain.append(('id', '!=', self.id))
+        prior_slips = self.env['hr.payslip'].search(domain)
+
+        ytd_pensionable = 0.0
+        for slip in prior_slips:
+            gross_lines = slip.line_ids.filtered(lambda l: l.code == 'GROSS')
+            gross_val = sum(abs(line.total) for line in gross_lines)
+            ytd_pensionable += max(gross_val - period_exemption, 0.0)
+        return ytd_pensionable
+
     def _l10n_ca_get_payslip_line_values(self, code_list, employee_id=None, compute_sum=False):
         """Compute Canadian payroll line values using rule parameters."""
         if not employee_id:
@@ -198,7 +240,6 @@ class HrPayslip(models.Model):
 
         # EI parameters
         ei_rate = get_param('l10n_ca_ei_employee_rate', 0.0163)
-        ei_max_insurable = get_param('l10n_ca_ei_max_insurable', 68900)
         ei_max_premium = get_param('l10n_ca_ei_max_premium', 1123.07)
         ei_employer_mult = get_param('l10n_ca_ei_employer_multiplier', 1.4)
 
@@ -256,26 +297,32 @@ class HrPayslip(models.Model):
                 if payslip.version_id.l10n_ca_cpp_exempt:
                     result[code][payslip.id] = {'total': 0}
                     continue
-                period_ympe = cpp_ympe / periods
-                period_ceiling = cpp2_ceiling / periods
-                if gross_amount > period_ympe:
-                    cpp2_pensionable = min(gross_amount, period_ceiling) - period_ympe
-                    period_contribution = cpp2_pensionable * cpp2_rate
+                period_exemption = cpp_exemption / periods
+                # CRA T4127 §4.4: CPP2 applies only once YTD pensionable
+                # earnings exceed the annual YMPE.  Use cumulative approach.
+                ytd_pensionable = payslip._l10n_ca_ytd_pensionable_earnings()
+                period_pensionable = max(gross_amount - period_exemption, 0)
+                new_ytd_pensionable = ytd_pensionable + period_pensionable
+                if new_ytd_pensionable <= cpp_ympe:
+                    cpp2_contribution = 0
+                else:
+                    band_low = max(ytd_pensionable, cpp_ympe)
+                    band_high = min(new_ytd_pensionable, cpp2_ceiling)
+                    cpp2_pensionable_period = max(band_high - band_low, 0)
+                    period_contribution = cpp2_pensionable_period * cpp2_rate
                     # CRA: annual cumulative cap, NOT per-period cap.
                     ytd_cpp2 = payslip._l10n_ca_ytd_amount('CPP2_EE')
                     remaining_annual = max(cpp2_max - ytd_cpp2, 0)
                     cpp2_contribution = min(period_contribution, remaining_annual)
-                else:
-                    cpp2_contribution = 0
                 result[code][payslip.id] = {'total': round(cpp2_contribution, 2)}
 
             elif code == 'EI_EE':
                 if payslip.version_id.l10n_ca_ei_exempt:
                     result[code][payslip.id] = {'total': 0}
                     continue
-                insurable = min(gross_amount, ei_max_insurable / periods)
-                period_premium = insurable * ei_rate
-                # CRA: annual cumulative premium cap.
+                # CRA T4127 §4.1: EI premium = gross × rate.  The only cap
+                # is the annual premium maximum; no per-period insurable cap.
+                period_premium = gross_amount * ei_rate
                 ytd_ei = payslip._l10n_ca_ytd_amount('EI_EE')
                 remaining_annual = max(ei_max_premium - ytd_ei, 0)
                 ei_premium = min(period_premium, remaining_annual)

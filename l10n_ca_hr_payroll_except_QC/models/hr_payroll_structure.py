@@ -17,6 +17,11 @@ class HrPayrollStructure(models.Model):
         Purely informational — never mutates data.  If a future PR declares a
         new rule on the Hourly structure but forgets the parallel Salaried
         record, this will surface the discrepancy in the server log.
+
+        **To resolve a logged discrepancy:** add a ``<record id="..._salaried">``
+        entry in ``data/hr_salary_rule_data.xml`` pointing at
+        ``hr_payroll_structure_ca_employee_salary_salaried``, then run
+        ``-u l10n_ca_hr_payroll_except_QC``.
         """
         res = super()._register_hook()
         try:

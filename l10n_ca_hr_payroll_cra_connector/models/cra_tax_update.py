@@ -133,6 +133,8 @@ class CraTaxUpdate(models.Model):
         _add("federal.bpaf.max", bpaf.get("max"))
         _add("federal.bpaf.min", bpaf.get("min"))
         _add("federal.k1_rate", federal.get("k1_rate"))
+        if federal.get("cea") is not None:
+            _add("federal.cea", federal.get("cea"))
         for idx, bracket in enumerate(federal.get("tax_brackets", [])):
             if bracket.get("up_to") is not None:
                 _add(f"federal.tax_brackets[{idx}].up_to", bracket["up_to"])

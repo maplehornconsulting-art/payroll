@@ -275,7 +275,34 @@ rrsp = abs(result_rules.get('RRSP', {}).get('total', 0))
 union = abs(result_rules.get('UNION_DUES', {}).get('total', 0))
 taxable_per_period = gross_amount - rrsp - union
 periods = payslip._l10n_ca_periods_per_year()
-annual_income = taxable_per_period * periods
+
+# CRA T4127: CPP contributions are split into base (4.95%) and enhanced (1.00%) portions.
+# The base portion yields a non-refundable credit (K2); the enhanced portion plus all of
+# CPP2 reduce taxable income before tax is computed (T4127 variable U1).
+cpp_total_rate   = payslip._rule_parameter('l10n_ca_cpp_employee_rate')
+cpp_base_rate    = payslip._rule_parameter('l10n_ca_cpp_base_rate')
+# Canada Employment Amount — federal non-refundable credit (T4127 variable CEA)
+cea = payslip._rule_parameter('l10n_ca_fed_canada_employment_amount')
+
+# Projected annual CPP, CPP2, and EI contributions (YTD-aware, capped at annual maxima).
+cpp_max  = payslip._rule_parameter('l10n_ca_cpp_max_contribution')
+cpp2_max = payslip._rule_parameter('l10n_ca_cpp2_max_contribution')
+ei_max   = payslip._rule_parameter('l10n_ca_ei_max_premium')
+annual_cpp  = payslip._l10n_ca_projected_annual_contribution(
+    'CPP_EE',  result_rules.get('CPP_EE',  {}).get('total', 0), cpp_max)
+annual_cpp2 = payslip._l10n_ca_projected_annual_contribution(
+    'CPP2_EE', result_rules.get('CPP2_EE', {}).get('total', 0), cpp2_max)
+annual_ei   = payslip._l10n_ca_projected_annual_contribution(
+    'EI_EE',   result_rules.get('EI_EE',   {}).get('total', 0), ei_max)
+
+# Split CPP: base portion (4.95/5.95) is a K2 credit; enhanced portion (1.00/5.95) reduces income.
+annual_cpp_base    = annual_cpp * (cpp_base_rate / cpp_total_rate) if cpp_total_rate else 0.0
+annual_enhanced_cpp = annual_cpp - annual_cpp_base
+# CPP2 (4.00%) is entirely an income deduction — no K2 credit at all.
+annual_cpp2_full = annual_cpp2
+
+# T4127: annual taxable income = P*(I-F-F2) - U1  (U1 = enhanced CPP + CPP2)
+annual_income = taxable_per_period * periods - annual_enhanced_cpp - annual_cpp2_full
 
 fed_brackets = [
     (payslip._rule_parameter('l10n_ca_fed_bracket_1'), payslip._rule_parameter('l10n_ca_fed_rate_1')),
@@ -307,22 +334,12 @@ for bracket, rate in fed_brackets:
     if annual_income &lt;= bracket:
         break
 
-credit = fed_bpa * fed_brackets[0][1]
+# K1: BPA credit + Canada Employment Amount at the lowest federal rate (T4127: K1 = R*(TC+CEA))
+credit = (fed_bpa + cea) * fed_brackets[0][1]
 
-# CRA T4127 K2: non-refundable credit for employee CPP, CPP2, and EI
-# contributions at the lowest federal rate. Uses YTD-aware projected
-# annual contribution so the credit is correct for high earners who
-# hit the annual cap mid-year.
-cpp_max  = payslip._rule_parameter('l10n_ca_cpp_max_contribution')
-cpp2_max = payslip._rule_parameter('l10n_ca_cpp2_max_contribution')
-ei_max   = payslip._rule_parameter('l10n_ca_ei_max_premium')
-annual_cpp  = payslip._l10n_ca_projected_annual_contribution(
-    'CPP_EE',  result_rules.get('CPP_EE',  {}).get('total', 0), cpp_max)
-annual_cpp2 = payslip._l10n_ca_projected_annual_contribution(
-    'CPP2_EE', result_rules.get('CPP2_EE', {}).get('total', 0), cpp2_max)
-annual_ei   = payslip._l10n_ca_projected_annual_contribution(
-    'EI_EE',   result_rules.get('EI_EE',   {}).get('total', 0), ei_max)
-k2 = (annual_cpp + annual_cpp2 + annual_ei) * fed_brackets[0][1]
+# K2: non-refundable credit for base CPP (4.95%) and EI at the lowest federal rate.
+# The enhanced CPP (1.00%) and all of CPP2 are already deducted from income above.
+k2 = (annual_cpp_base + annual_ei) * fed_brackets[0][1]
 
 annual_tax = max(tax - credit - k2, 0)
 additional = version.l10n_ca_additional_tax or 0
@@ -348,7 +365,6 @@ rrsp = abs(result_rules.get('RRSP', {}).get('total', 0))
 union = abs(result_rules.get('UNION_DUES', {}).get('total', 0))
 taxable_per_period = gross_amount - rrsp - union
 periods = payslip._l10n_ca_periods_per_year()
-annual_income = taxable_per_period * periods
 
 # Get province from employee record (falls back to ON)
 province = employee.l10n_ca_province_id.code or 'ON'
@@ -388,6 +404,27 @@ for br in cfg['b']:
     t = br[0] if br[0] != 0 else float('inf')
     prov_brackets.append((t, br[1]))
 
+# CRA T4127: CPP contributions are split for provincial tax the same as for federal.
+# The base portion (4.95/5.95) yields a K2P credit; enhanced (1.00/5.95) + CPP2 reduce income.
+cpp_total_rate_p = payslip._rule_parameter('l10n_ca_cpp_employee_rate')
+cpp_base_rate_p  = payslip._rule_parameter('l10n_ca_cpp_base_rate')
+cpp_max_p  = payslip._rule_parameter('l10n_ca_cpp_max_contribution')
+cpp2_max_p = payslip._rule_parameter('l10n_ca_cpp2_max_contribution')
+ei_max_p   = payslip._rule_parameter('l10n_ca_ei_max_premium')
+annual_cpp_p  = payslip._l10n_ca_projected_annual_contribution(
+    'CPP_EE',  result_rules.get('CPP_EE',  {}).get('total', 0), cpp_max_p)
+annual_cpp2_p = payslip._l10n_ca_projected_annual_contribution(
+    'CPP2_EE', result_rules.get('CPP2_EE', {}).get('total', 0), cpp2_max_p)
+annual_ei_p   = payslip._l10n_ca_projected_annual_contribution(
+    'EI_EE',   result_rules.get('EI_EE',   {}).get('total', 0), ei_max_p)
+
+annual_cpp_base_p    = annual_cpp_p * (cpp_base_rate_p / cpp_total_rate_p) if cpp_total_rate_p else 0.0
+annual_enhanced_cpp_p = annual_cpp_p - annual_cpp_base_p
+annual_cpp2_full_p   = annual_cpp2_p
+
+# T4127: annual taxable income = P*(I-F-F2) - U1  (U1 = enhanced CPP + CPP2)
+annual_income = taxable_per_period * periods - annual_enhanced_cpp_p - annual_cpp2_full_p
+
 # Progressive tax calculation
 tax = 0
 prev_bracket = 0
@@ -402,21 +439,10 @@ for bracket, rate in prov_brackets:
 # K1P — BPA credit at lowest provincial rate
 prov_credit = cfg['bpa'] * prov_brackets[0][1]
 
-# K2P — credit for annual CPP and EI at the lowest provincial rate (CRA T4127 §5.6).
-# PROV_TAX (sequence 25) runs after CPP_EE (10), CPP2_EE (11) and EI_EE (15),
-# so result_rules already contains the per-period contributions.
-# Uses YTD-aware projected annual contribution so the credit is correct for
-# high earners who hit the annual cap mid-year.
-cpp_max_p  = payslip._rule_parameter('l10n_ca_cpp_max_contribution')
-cpp2_max_p = payslip._rule_parameter('l10n_ca_cpp2_max_contribution')
-ei_max_p   = payslip._rule_parameter('l10n_ca_ei_max_premium')
-annual_cpp_p  = payslip._l10n_ca_projected_annual_contribution(
-    'CPP_EE',  result_rules.get('CPP_EE',  {}).get('total', 0), cpp_max_p)
-annual_cpp2_p = payslip._l10n_ca_projected_annual_contribution(
-    'CPP2_EE', result_rules.get('CPP2_EE', {}).get('total', 0), cpp2_max_p)
-annual_ei_p   = payslip._l10n_ca_projected_annual_contribution(
-    'EI_EE',   result_rules.get('EI_EE',   {}).get('total', 0), ei_max_p)
-k2p = (annual_cpp_p + annual_cpp2_p + annual_ei_p) * prov_brackets[0][1]
+# K2P — credit for base CPP (4.95%) and EI at the lowest provincial rate (CRA T4127 §5.6).
+# The enhanced CPP (1.00%) and all of CPP2 are already deducted from income above.
+# CEA is federal only — provinces do not have a Canada Employment Amount.
+k2p = (annual_cpp_base_p + annual_ei_p) * prov_brackets[0][1]
 
 basic_provincial_tax = max(tax - prov_credit - k2p, 0)
 

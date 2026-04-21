@@ -237,6 +237,46 @@
         <field name="parameter_value">14829</field>
     </record>
 
+    <!-- ======================== Federal Tax Credit / Rate Split Parameters ======================== -->
+
+    <!-- Canada Employment Amount (T4127 variable CEA) — federal non-refundable credit only -->
+    <record id="rule_parameter_l10n_ca_fed_canada_employment_amount" model="hr.rule.parameter">
+        <field name="name">Canada - Federal Canada Employment Amount</field>
+        <field name="code">l10n_ca_fed_canada_employment_amount</field>
+        <field name="country_id" ref="base.ca"/>
+    </record>
+    <record id="rule_parameter_l10n_ca_fed_canada_employment_amount_2026" model="hr.rule.parameter.value">
+        <field name="rule_parameter_id" ref="rule_parameter_l10n_ca_fed_canada_employment_amount"/>
+        <field name="date_from">2026-01-01</field>
+        <!-- CEA 2026: $1,500 — verified by back-solving from CRA PDOC output (T4127 Chapter 5).
+             This value must be reviewed annually when CRA publishes the indexed T4127 amounts. -->
+        <field name="parameter_value">1500</field>
+    </record>
+
+    <!-- CPP base rate (4.95%) — used to split CPP contributions for K2/K2P credit vs income deduction -->
+    <record id="rule_parameter_l10n_ca_cpp_base_rate" model="hr.rule.parameter">
+        <field name="name">Canada - CPP Base Rate</field>
+        <field name="code">l10n_ca_cpp_base_rate</field>
+        <field name="country_id" ref="base.ca"/>
+    </record>
+    <record id="rule_parameter_l10n_ca_cpp_base_rate_2026" model="hr.rule.parameter.value">
+        <field name="rule_parameter_id" ref="rule_parameter_l10n_ca_cpp_base_rate"/>
+        <field name="date_from">2026-01-01</field>
+        <field name="parameter_value">0.0495</field>
+    </record>
+
+    <!-- CPP first additional (enhanced) rate (1.00%) — deducted from income (T4127 variable U1) -->
+    <record id="rule_parameter_l10n_ca_cpp_enhanced_rate" model="hr.rule.parameter">
+        <field name="name">Canada - CPP First Additional (Enhanced) Rate</field>
+        <field name="code">l10n_ca_cpp_enhanced_rate</field>
+        <field name="country_id" ref="base.ca"/>
+    </record>
+    <record id="rule_parameter_l10n_ca_cpp_enhanced_rate_2026" model="hr.rule.parameter.value">
+        <field name="rule_parameter_id" ref="rule_parameter_l10n_ca_cpp_enhanced_rate"/>
+        <field name="date_from">2026-01-01</field>
+        <field name="parameter_value">0.0100</field>
+    </record>
+
     <!-- ======================== Vacation Pay Parameters ======================== -->
     <record id="rule_parameter_l10n_ca_vacation_pay_rate" model="hr.rule.parameter">
         <field name="name">Canada - Vacation Pay Rate</field>

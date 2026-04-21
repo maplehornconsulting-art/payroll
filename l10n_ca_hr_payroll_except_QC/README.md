@@ -373,7 +373,7 @@ PDOC and most major Canadian payroll products (Wave, QuickBooks, ADP, Ceridian) 
 | Approach | Annual K1 | Annual fed tax | Per-period (26×) |
 |---|---|---|---|
 | Phase-out ON (T4127 §5.1) | phased BPA × 0.14 | higher | **≈ $2,155.09** |
-| Phase-out OFF (PDOC/default) | $17,952 × 0.14 = $2,513.28 | lower | **≈ $2,146.45** |
+| Phase-out OFF (PDOC/default) | (BPA_MAX + CEA) = $17,952 × 0.14 = $2,513.28 | lower | **≈ $2,146.45** |
 
 Both approaches are CRA-acceptable. Phase-out ON causes over-withholding (~$224/yr for a
 $10,000 biweekly earner); phase-out OFF causes slight under-withholding that the employee

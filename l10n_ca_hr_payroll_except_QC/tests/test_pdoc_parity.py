@@ -138,51 +138,69 @@ def _fed_bpa(annual_income: float) -> float:
 
 
 def _fed_tax(gross: float, periods: int, ytd_cpp: float = 0.0,
-             ytd_cpp2: float = 0.0, ytd_ei: float = 0.0) -> float:
-    """Corrected FED_TAX rule: income reduced by enhanced CPP + CPP2; K1 += CEA."""
-    periods_remaining = periods  # first-period approximation (ytd=0)
+             ytd_cpp2: float = 0.0, ytd_ei: float = 0.0,
+             ytd_pensionable: float = 0.0) -> float:
+    """Corrected FED_TAX rule: income reduced by enhanced CPP + CPP2; K1 += CEA.
+
+    U1 (income deduction) uses per-period contribution × periods — NO annual cap.
+    K2 (non-refundable credit) uses the capped projected annual contribution.
+    See CRA T4127 §5.2 for the distinction.
+    """
     current_cpp = _cpp_ee(gross, periods, ytd_cpp)
+    current_cpp2 = _cpp2_ee(gross, periods, ytd_cpp2, ytd_pensionable)
     current_ei  = _ei_ee(gross, periods, ytd_ei)
 
-    # Project annual contributions (simple annualisation for ytd=0 case)
-    annual_cpp  = min(current_cpp * periods, _CPP_MAX)
-    annual_cpp2 = 0.0  # no CPP2 for $2,000 gross (below per-period YMPE threshold)
-    annual_ei   = min(current_ei  * periods, _EI_MAX_PREM)
+    # K2: capped projected annual contributions (actual employee contributions, T4127 K2).
+    annual_cpp_capped = min(current_cpp * periods, _CPP_MAX)
+    annual_ei_capped  = min(current_ei  * periods, _EI_MAX_PREM)
+    annual_cpp_base   = annual_cpp_capped * (_CPP_BASE_RATE / _CPP_RATE)
 
-    # Split CPP into base (K2 credit) and enhanced (income deduction)
-    annual_cpp_base    = annual_cpp * (_CPP_BASE_RATE / _CPP_RATE)
-    annual_enhanced    = annual_cpp - annual_cpp_base
+    # U1 (income deduction): per-period × periods, intentionally uncapped (CRA T4127 §5.2).
+    # T4127 projects the year at the current period's rate; the annual CPP cap applies only to
+    # K2 (the non-refundable credit), NOT to the income deduction.
+    period_enhanced_cpp = current_cpp * (_CPP_ENHANCED / _CPP_RATE)
+    annual_enhanced_cpp = period_enhanced_cpp * periods  # NO annual cap
+    annual_cpp2_full    = current_cpp2 * periods         # NO annual cap
 
     # T4127: annual income = P*I - U1 (U1 = enhanced CPP + CPP2)
-    annual_income = gross * periods - annual_enhanced - annual_cpp2
+    annual_income = gross * periods - annual_enhanced_cpp - annual_cpp2_full
 
     bpa = _fed_bpa(annual_income)
     tax = _progressive_tax(annual_income, _FED_BRACKETS)
     k1  = (bpa + _CEA) * _FED_BRACKETS[0][1]      # includes Canada Employment Amount
-    k2  = (annual_cpp_base + annual_ei) * _FED_BRACKETS[0][1]  # base CPP + EI only
+    k2  = (annual_cpp_base + annual_ei_capped) * _FED_BRACKETS[0][1]  # base CPP + EI only
 
     return round(max(tax - k1 - k2, 0.0) / periods, 2)
 
 
 def _prov_tax(gross: float, periods: int, prov_brackets: list, prov_bpa: float,
               surtax: list, ytd_cpp: float = 0.0, ytd_cpp2: float = 0.0,
-              ytd_ei: float = 0.0) -> float:
-    """Corrected PROV_TAX rule: income reduced by enhanced CPP + CPP2; no CEA."""
+              ytd_ei: float = 0.0, ytd_pensionable: float = 0.0) -> float:
+    """Corrected PROV_TAX rule: income reduced by enhanced CPP + CPP2; no CEA.
+
+    U1 (income deduction) uses per-period contribution × periods — NO annual cap.
+    K2P (non-refundable credit) uses the capped projected annual contribution.
+    See CRA T4127 §5.2 for the distinction.
+    """
     current_cpp = _cpp_ee(gross, periods, ytd_cpp)
+    current_cpp2 = _cpp2_ee(gross, periods, ytd_cpp2, ytd_pensionable)
     current_ei  = _ei_ee(gross, periods, ytd_ei)
 
-    annual_cpp  = min(current_cpp * periods, _CPP_MAX)
-    annual_cpp2 = 0.0
-    annual_ei   = min(current_ei  * periods, _EI_MAX_PREM)
+    # K2P: capped projected annual contributions (actual employee contributions).
+    annual_cpp_capped = min(current_cpp * periods, _CPP_MAX)
+    annual_ei_capped  = min(current_ei  * periods, _EI_MAX_PREM)
+    annual_cpp_base   = annual_cpp_capped * (_CPP_BASE_RATE / _CPP_RATE)
 
-    annual_cpp_base = annual_cpp * (_CPP_BASE_RATE / _CPP_RATE)
-    annual_enhanced = annual_cpp - annual_cpp_base
+    # U1 (income deduction): per-period × periods, intentionally uncapped (CRA T4127 §5.2).
+    period_enhanced_cpp = current_cpp * (_CPP_ENHANCED / _CPP_RATE)
+    annual_enhanced_cpp = period_enhanced_cpp * periods  # NO annual cap
+    annual_cpp2_full    = current_cpp2 * periods         # NO annual cap
 
-    annual_income = gross * periods - annual_enhanced - annual_cpp2
+    annual_income = gross * periods - annual_enhanced_cpp - annual_cpp2_full
 
     tax = _progressive_tax(annual_income, prov_brackets)
     k1p = prov_bpa * prov_brackets[0][1]
-    k2p = (annual_cpp_base + annual_ei) * prov_brackets[0][1]
+    k2p = (annual_cpp_base + annual_ei_capped) * prov_brackets[0][1]
 
     basic = max(tax - k1p - k2p, 0.0)
 
@@ -522,8 +540,178 @@ class TestHighEarner4000BiweeklyNs:
 
 
 # ---------------------------------------------------------------------------
-# OHP CRA T4127 spot-check table (annual amounts)
+# High-earner NS $4,000 biweekly — federal & provincial tax regression tests
+# (Bug fix verification: U1 now uses uncapped per-period × periods)
 # ---------------------------------------------------------------------------
+
+class TestHighEarner4000BiweeklyNsTax:
+    """NS $4,000 biweekly — regression tests for federal and provincial income tax.
+
+    Reference:
+      PDOC verified 2026-04: $4,000 biweekly, Nova Scotia, 26 pay periods,
+      Federal TD1=$16,452, Provincial TD1=$11,932, first pay of year.
+
+    These tests expose the U1 cap bug: at $4,000 biweekly the projected annual
+    CPP ($5,979.74) exceeds the annual cap ($4,230.45), so the buggy capped
+    formula understates U1 and overstates taxable income.
+
+    PDOC expected (period 1):
+      Federal Tax  ≈ $544.11  ✓ (uncapped U1 fix)
+      NS Tax       ≈ $491.66  ✓ (uncapped U1 fix)
+    """
+
+    GROSS   = 4000.0
+    PERIODS = 26
+
+    def test_federal_tax_period1(self):
+        """Federal tax at $4,000 biweekly must be ≈$544 (uncapped U1 fix).
+
+        Buggy capped value was ~$546.43 (U1 understated because annual CPP
+        was capped at $4,230.45 instead of using period × periods = $5,979.74).
+        """
+        fed = _fed_tax(self.GROSS, self.PERIODS)
+        assert fed == pytest.approx(544.11, abs=0.10), (
+            f"FED_TAX at $4,000 biweekly expected ~$544.11 (uncapped U1), got {fed}"
+        )
+
+    def test_ns_provincial_tax_period1(self):
+        """NS provincial tax at $4,000 biweekly must be ≈$491 (uncapped U1 fix).
+
+        Buggy capped value was ~$493.64.
+        """
+        prov = _prov_tax(self.GROSS, self.PERIODS, _NS_BRACKETS, _NS_BPA, [])
+        assert prov == pytest.approx(491.66, abs=0.10), (
+            f"NS PROV_TAX at $4,000 biweekly expected ~$491.66 (uncapped U1), got {prov}"
+        )
+
+    def test_ei_ee_period1(self):
+        """EI_EE at period 1 remains $65.20 (unchanged by U1 fix)."""
+        ei = _ei_ee(self.GROSS, self.PERIODS, ytd=0.0)
+        assert ei == pytest.approx(65.20, abs=0.01)
+
+    def test_cpp2_ee_period1_is_zero(self):
+        """CPP2_EE at period 1 is $0 (unchanged by U1 fix)."""
+        cpp2 = _cpp2_ee(self.GROSS, self.PERIODS, ytd_cpp2=0.0, ytd_pensionable=0.0)
+        assert cpp2 == 0.0
+
+
+# ---------------------------------------------------------------------------
+# High-earner NS $6,000 biweekly — new regression test (exposes the U1 cap bug)
+# ---------------------------------------------------------------------------
+
+class TestHighEarner6000BiweeklyNs:
+    """NS $6,000 biweekly — regression test exposing the U1 cap bug.
+
+    Reference:
+      PDOC verified 2026-04: $6,000 biweekly, Nova Scotia, 26 pay periods,
+      Federal TD1=$16,452, Provincial TD1=$11,932, first pay of year.
+
+    At $6,000 biweekly, per-period CPP = $348.99.  The projected annual CPP
+    (348.99 × 26 = $9,073.74) far exceeds the annual cap ($4,230.45).  The
+    buggy capped formula understates U1 by $813 and overstates taxable income,
+    causing Federal tax to be $1,037.32 instead of the correct $1,029.20.
+
+    With the fix:
+      - period_enhanced_cpp = 348.99 × (0.01/0.0595) = 58.65/period
+      - annual_enhanced_cpp (uncapped) = 58.65 × 26 = 1,524.90
+      - annual_income = 156,000 − 1,524.90 = 154,475.10
+
+    PDOC expected (period 1):
+      CPP_EE       = 348.99  ✓
+      CPP2_EE      = 0.00    ✓ (YTD pensionable < YMPE at period 1)
+      EI_EE        = 97.80   ✓
+      Federal Tax  = 1,029.20 ✓
+      NS Tax       = 838.16  ✓
+      Net          = 3,685.85 ✓
+    """
+
+    GROSS   = 6000.0
+    PERIODS = 26
+
+    def test_cpp_ee_period1(self):
+        """CPP_EE at period 1 must be $348.99 (PDOC: $348.99)."""
+        cpp = _cpp_ee(self.GROSS, self.PERIODS, ytd=0.0)
+        assert cpp == pytest.approx(348.99, abs=0.01), (
+            f"CPP_EE expected 348.99, got {cpp}"
+        )
+
+    def test_cpp2_ee_period1_is_zero(self):
+        """CPP2_EE at period 1 must be $0 — YTD pensionable < YMPE at first period."""
+        cpp2 = _cpp2_ee(self.GROSS, self.PERIODS, ytd_cpp2=0.0, ytd_pensionable=0.0)
+        assert cpp2 == 0.0, (
+            f"CPP2_EE at period 1 must be $0 (YTD pensionable below YMPE), got {cpp2}"
+        )
+
+    def test_ei_ee_period1(self):
+        """EI_EE at period 1 must be $97.80 (PDOC: $97.80)."""
+        ei = _ei_ee(self.GROSS, self.PERIODS, ytd=0.0)
+        assert ei == pytest.approx(97.80, abs=0.01), (
+            f"EI_EE expected 97.80, got {ei}"
+        )
+
+    def test_federal_tax_period1(self):
+        """Federal tax must be $1,029.20 (PDOC: $1,029.20) — the U1 cap bug fix.
+
+        Without the fix, the capped U1 gave $1,037.32 (+$8.12 over PDOC).
+        """
+        fed = _fed_tax(self.GROSS, self.PERIODS)
+        assert fed == pytest.approx(1029.20, abs=0.10), (
+            f"FED_TAX expected 1029.20 (PDOC), got {fed}. "
+            f"Old buggy capped value was ~1037.32."
+        )
+
+    def test_ns_provincial_tax_period1(self):
+        """NS provincial tax must be $838.16 (PDOC: $838.16) — the U1 cap bug fix.
+
+        Without the fix, the capped U1 gave $843.64 (+$5.48 over PDOC).
+        """
+        prov = _prov_tax(self.GROSS, self.PERIODS, _NS_BRACKETS, _NS_BPA, [])
+        assert prov == pytest.approx(838.16, abs=0.10), (
+            f"NS PROV_TAX expected 838.16 (PDOC), got {prov}. "
+            f"Old buggy capped value was ~843.64."
+        )
+
+    def test_net_pay_period1(self):
+        """Net pay must be $3,685.85 (PDOC: $3,685.85)."""
+        cpp  = _cpp_ee(self.GROSS, self.PERIODS, ytd=0.0)
+        cpp2 = _cpp2_ee(self.GROSS, self.PERIODS, ytd_cpp2=0.0, ytd_pensionable=0.0)
+        ei   = _ei_ee(self.GROSS, self.PERIODS, ytd=0.0)
+        fed  = _fed_tax(self.GROSS, self.PERIODS)
+        prov = _prov_tax(self.GROSS, self.PERIODS, _NS_BRACKETS, _NS_BPA, [])
+        net  = self.GROSS - cpp - cpp2 - ei - fed - prov
+        assert net == pytest.approx(3685.85, abs=0.10), (
+            f"Net pay expected 3685.85 (PDOC), got {net}"
+        )
+
+    def test_u1_is_uncapped(self):
+        """Annual U1 must equal per-period enhanced CPP × 26 — uncapped (T4127 §5.2).
+
+        The projected annual total CPP (348.99 × 26 = $9,073.74) exceeds the annual
+        max ($4,230.45), which means the old capped formula would have computed a smaller
+        enhanced amount (4,230.45 × 1.00/5.95 = $711.00) instead of the correct
+        per-period × periods = $1,524.90.  The test verifies the correct uncapped value.
+        """
+        period_cpp = _cpp_ee(self.GROSS, self.PERIODS)
+        # Confirm the projected annual CPP exceeds the annual cap (so capping would bite)
+        projected_annual_cpp = period_cpp * self.PERIODS
+        assert projected_annual_cpp > _CPP_MAX, (
+            f"Projected annual CPP ({projected_annual_cpp:.2f}) must exceed the cap "
+            f"({_CPP_MAX}) so this test exercises the capping scenario."
+        )
+        # U1 = period_enhanced × periods — must NOT use the capped annual value
+        period_enhanced = period_cpp * (_CPP_ENHANCED / _CPP_RATE)
+        annual_u1 = period_enhanced * self.PERIODS
+        annual_u1_if_capped = min(projected_annual_cpp, _CPP_MAX) * (_CPP_ENHANCED / _CPP_RATE)
+        assert annual_u1 > annual_u1_if_capped, (
+            f"Uncapped U1 ({annual_u1:.2f}) must exceed the (wrong) capped U1 "
+            f"({annual_u1_if_capped:.2f})."
+        )
+        assert annual_u1 == pytest.approx(1524.90, abs=0.10), (
+            f"Annual U1 expected 1524.90 (58.65×26), got {annual_u1:.2f}"
+        )
+
+
+
 
 def _ohp_annual(annual_income: float) -> float:
     """Return the annual OHP for the given annual income (Ontario only).

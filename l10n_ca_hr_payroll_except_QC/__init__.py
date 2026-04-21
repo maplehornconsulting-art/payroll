@@ -56,10 +56,16 @@ def _post_init_hook(env):
             'ATTACH_SALARY', 'ASSIG_SALARY',
             'CHILD_SUPPORT', 'DEDUCTION', 'REIMBURSEMENT',
         ]
+        # Whitelist BOTH hourly and salaried twins of our BASIC/GROSS/NET rules
+        # so the archive sweep below doesn't deactivate them. Missing the
+        # _salaried IDs here is the bug fixed in 19.0.2.3.
         own_rule_xmlids = [
             'l10n_ca_hr_payroll_except_QC.salary_rule_ca_basic',
             'l10n_ca_hr_payroll_except_QC.salary_rule_ca_gross',
             'l10n_ca_hr_payroll_except_QC.salary_rule_ca_net',
+            'l10n_ca_hr_payroll_except_QC.salary_rule_ca_basic_salaried',
+            'l10n_ca_hr_payroll_except_QC.salary_rule_ca_gross_salaried',
+            'l10n_ca_hr_payroll_except_QC.salary_rule_ca_net_salaried',
         ]
         own_rule_ids = set()
         for xmlid in own_rule_xmlids:
@@ -67,6 +73,17 @@ def _post_init_hook(env):
             if rule:
                 own_rule_ids.add(rule.id)
 
+        # Self-heal: un-archive any of our own rules a previous buggy install
+        # deactivated. active_test=False so we can find archived records.
+        if own_rule_ids:
+            own_rules_all = env['hr.salary.rule'].with_context(
+                active_test=False
+            ).browse(list(own_rule_ids))
+            archived_own = own_rules_all.filtered(lambda r: not r.active)
+            if archived_own:
+                archived_own.active = True
+
+        # Archive ONLY foreign default rules on our structures.
         default_rules = env['hr.salary.rule'].search([
             ('struct_id', 'in', structure_ids),
             ('code', 'in', default_codes),

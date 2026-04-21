@@ -349,6 +349,14 @@ A future `l10n_ca_qc_hr_payroll` module may be developed for Quebec.
 
 ## Changelog
 
+### v19.0.2.3 (April 2026) — Salaried BASIC/GROSS/NET repair
+
+- ✅ **Fixed `_post_init_hook` whitelist** to include the salaried twins (`salary_rule_ca_basic_salaried`, `_gross_salaried`, `_net_salaried`). Previously the archive sweep deactivated these three rules on install, leaving the Salaried structure with only 16 rules instead of 19 and producing payslips with no BASIC / GROSS / NET lines.
+- ✅ Added self-healing repair pass in `_post_init_hook` that un-archives any of the six own BASIC/GROSS/NET rules left inactive by a previous buggy install.
+- ✅ Added migration script `migrations/19.0.2.3/post-migration.py` so existing 19.0.2.2 databases self-repair on `-u l10n_ca_hr_payroll_except_QC` — no manual SQL required.
+- ✅ Added regression test `tests/test_post_init_whitelist.py` to prevent future whitelist omissions.
+- ⚠️ **Upgrade required** on existing databases: run `-u l10n_ca_hr_payroll_except_QC`. After upgrade, both structures will report 19 rules and the `_register_hook` diagnostic line will no longer log `Structure rule codes differ!`.
+
 ### v1.11 (April 2026) — Replaced runtime clone with explicit XML declarations for the Salaried structure
 
 **Root cause:** Any runtime "clone Hourly rules into Salaried" strategy is

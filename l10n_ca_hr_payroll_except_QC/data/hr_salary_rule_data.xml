@@ -496,8 +496,8 @@ if not OHP_CFG or not OHP_CFG.get('tiers'):
         {'upto':  20000, 'base':   0, 'rate': 0,      'cap':   0},
         {'upto':  36000, 'base':   0, 'rate': 0.06,   'cap': 300},
         {'upto':  48000, 'base': 300, 'rate': 0.06,   'cap': 150},
-        {'upto':  72000, 'base': 450, 'rate': 0.0025, 'cap': 150},
-        {'upto': 200000, 'base': 600, 'rate': 0.0025, 'cap': 300},
+        {'upto':  72000, 'base': 450, 'rate': 0.25,   'cap': 150},
+        {'upto': 200000, 'base': 600, 'rate': 0.25,   'cap': 300},
         {'upto':  None,  'base': 900, 'rate': 0,      'cap':   0},
     ]}
 

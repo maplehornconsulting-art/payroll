@@ -379,6 +379,45 @@ Both approaches are CRA-acceptable. Phase-out ON causes over-withholding (~$224/
 $10,000 biweekly earner); phase-out OFF causes slight under-withholding that the employee
 reconciles on their T1 filing. There is no CRA penalty risk in either direction.
 
+### v1.10 (April 2026) — Salaried structure clone hardening & silent-drop fix
+
+**Root cause:** Rules like `BASIC`, `GROSS`, and `NET` were silently dropped from
+the Salaried structure when `Rule.create()` raised an exception because a
+`category_id` (or other Many2one field) referenced a record that was no longer
+accessible (deleted, not yet loaded, or inaccessible due to ACL). The exception
+was caught and logged only at WARNING level, leaving the Salaried structure
+incomplete. Without `BASIC` and `GROSS`, every downstream rule (`CPP_EE`,
+`EI_EE`, `FED_TAX`, `PROV_TAX`, `NET`, …) computed zero, making Salaried
+payslips appear empty.
+
+- ✅ **Dangling many2one validation** — before calling `Rule.create()`, the clone
+  pass now checks `category_id` and `parent_rule_id` with `.exists()`. If the
+  referenced record no longer exists, the field is cleared to `False` (and a
+  `WARNING` is logged) so the rule is still created instead of being silently lost.
+- ✅ **Full-traceback ERROR logging** — clone failures now log at `ERROR` level
+  with the full Python traceback (`traceback.format_exc()`) and a summary of the
+  `vals` dict (excluding large `amount_python_compute` / `condition_python` blobs),
+  making self-diagnosis possible without a support ticket.
+- ✅ **`failed_codes` tracking** — rules that fail `create()` are collected in a
+  `failed_codes` list so the count of failures is visible in the post-clone
+  summary log.
+- ✅ **`_register_hook` INFO log** — on every server start, an `INFO` line now
+  reports the rule count for both Hourly and Salaried structures (previously only
+  logged at `DEBUG`). If counts differ, an `ERROR` is also logged listing the
+  missing rule codes.
+- ✅ **`_register_hook` auto-heal** — when missing rules are detected at startup
+  and `registry.ready` is `True`, the clone/repair pass is automatically re-run,
+  so any server restart after a `-u l10n_ca_hr_payroll_except_QC` fully restores
+  the Salaried structure without manual intervention.
+- ✅ **New regression tests** (`test_salaried_parity.py`) — 12 pure-Python tests
+  covering the bug scenario (BASIC/GROSS/NET silently missing when category
+  dangling) and the fix (dangling ref cleared → rule successfully cloned).
+  Two "bug demonstration" tests verify the old behaviour was broken; ten "fix
+  validation" tests verify the new behaviour is correct.
+- ⚠️ **Action required on existing databases**: run `-u l10n_ca_hr_payroll_except_QC`
+  (or simply restart the Odoo server after the upgrade). The auto-heal logic in
+  `_register_hook` will detect and repair any missing Salaried rules automatically.
+
 ### v1.8 (April 2026) — High-earner U1 income deduction fix
 
 - ✅ **Bug fix — FED_TAX & PROV_TAX: U1 (enhanced CPP income deduction) no longer capped**: Per CRA T4127 §5.2, the U1 income deduction must be computed as *per-period enhanced CPP × pay periods* with **no annual cap**. The previous code used `_l10n_ca_projected_annual_contribution` (which caps at the annual CPP maximum of $4,230.45) for both U1 and K2/K2P, overstating taxable income by up to $813/year for high earners (gross > ~$2,734 biweekly). At $6,000 biweekly (NS), this caused Federal tax to be over-withheld by $8.12/period and Provincial tax by $5.48/period.

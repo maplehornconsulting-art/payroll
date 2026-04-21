@@ -1,6 +1,7 @@
 # Part of MHC. See LICENSE file for full copyright and licensing details.
 
 import logging
+import traceback
 
 from odoo import api, models
 
@@ -78,6 +79,7 @@ class HrPayrollStructure(models.Model):
 
         existing_codes = {r.code for r in target_struct.rule_ids}
         cloned = skipped = 0
+        failed_codes: list[str] = []
         for rule in source_struct.rule_ids:
             if rule.code in existing_codes:
                 skipped += 1
@@ -97,14 +99,36 @@ class HrPayrollStructure(models.Model):
                 "name": rule.name,
                 "code": rule.code,
             })
+            # Validate many2one fields to prevent silent drops caused by
+            # dangling references (e.g. category_id pointing to a deleted
+            # record) that would raise inside Rule.create() and get swallowed.
+            for fname in ('category_id', 'parent_rule_id'):
+                if not vals.get(fname):
+                    continue
+                if fname not in rule._fields:
+                    continue
+                comodel = rule._fields[fname].comodel_name
+                if not self.env[comodel].browse(vals[fname]).exists():
+                    _logger.warning(
+                        "l10n_ca clone: rule %s has dangling %s=%s — clearing it",
+                        rule.code, fname, vals[fname],
+                    )
+                    vals[fname] = False
             try:
                 Rule.create(vals)
                 cloned += 1
             except Exception as e:
                 _logger.error(
-                    "l10n_ca clone: failed to copy rule %s to salaried structure: %s",
-                    rule.code, e,
+                    "l10n_ca clone: FAILED to copy rule %s to salaried structure '%s'.\n"
+                    "  Exception: %s\n"
+                    "  vals (summary): %s\n"
+                    "  traceback:\n%s",
+                    rule.code, target_struct.name, e,
+                    {k: v for k, v in vals.items()
+                     if k not in ('amount_python_compute', 'condition_python')},
+                    traceback.format_exc(),
                 )
+                failed_codes.append(rule.code)
         # Repair pass: fill blank fields on existing target rules from the source.
         # This fixes databases where the old rule.copy()-based clone left
         # account_debit / account_credit and python compute fields blank.
@@ -147,8 +171,11 @@ class HrPayrollStructure(models.Model):
                 unchanged += 1
 
         _logger.info(
-            "l10n_ca clone: cloned %d new, repaired %d existing, skipped %d unchanged on '%s'",
-            cloned, repaired, unchanged, target_struct.name,
+            "l10n_ca clone: cloned %d new, repaired %d existing, skipped %d unchanged"
+            "%s on '%s'",
+            cloned, repaired, unchanged,
+            f", FAILED {len(failed_codes)}: {sorted(failed_codes)}" if failed_codes else "",
+            target_struct.name,
         )
 
         # Final-state assertion: log an ERROR if the target is missing any source rules.
@@ -166,10 +193,12 @@ class HrPayrollStructure(models.Model):
     def _register_hook(self):
         """Server-startup self-check: verify Hourly and Salaried structures are in sync.
 
-        Called by Odoo's module registry at server start.  Logs an ERROR (visible
-        in the server log without raising an exception) if the Salaried structure
-        is missing rules that exist on the Hourly structure.  This makes the issue
-        debuggable in production without disrupting normal server startup.
+        Called by Odoo's module registry at server start.  Logs an INFO line
+        with rule counts, then an ERROR (visible in the server log without
+        raising an exception) if the Salaried structure is missing rules that
+        exist on the Hourly structure.  When missing rules are found **and**
+        the registry is fully ready, the clone/repair pass is re-run
+        automatically to self-heal the database.
         """
         res = super()._register_hook()
         try:
@@ -188,13 +217,24 @@ class HrPayrollStructure(models.Model):
             hourly_codes   = {r.code for r in hourly.rule_ids}
             salaried_codes = {r.code for r in salaried.rule_ids}
             missing = hourly_codes - salaried_codes
+
+            _logger.info(
+                "l10n_ca: Hourly structure has %d rules, Salaried structure has %d rules",
+                len(hourly_codes), len(salaried_codes),
+            )
+
             if missing:
                 _logger.error(
                     "l10n_ca startup check: Salaried structure is missing %d rule(s) "
                     "present on the Hourly structure: %s.  "
-                    "Run `-u l10n_ca_hr_payroll_except_QC` to repair.",
+                    "Attempting auto-heal via clone/repair pass.",
                     len(missing), sorted(missing),
                 )
+                # Auto-heal: re-run the clone+repair pass so that running
+                # `-u l10n_ca_hr_payroll_except_QC` (or any server restart
+                # after the module upgrade) fully restores missing rules.
+                if self.env.registry.ready:
+                    self._l10n_ca_clone_rules_to_salaried(hourly, salaried)
             else:
                 _logger.debug(
                     "l10n_ca startup check: Hourly and Salaried structures are in sync "

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+    <data noupdate="1">
+
+        <!-- Receiver General for Canada — CRA vendor partner -->
+        <record id="res_partner_receiver_general" model="res.partner">
+            <field name="name">Receiver General for Canada</field>
+            <field name="is_company" eval="True"/>
+            <field name="supplier_rank">1</field>
+            <field name="country_id" ref="base.ca"/>
+            <field name="website">https://www.canada.ca/en/revenue-agency.html</field>
+            <field name="comment">CRA — Receiver General for Canada. Used for payroll remittance payments (PD7A). Do not modify this record.</field>
+        </record>
+
+    </data>
+</odoo>

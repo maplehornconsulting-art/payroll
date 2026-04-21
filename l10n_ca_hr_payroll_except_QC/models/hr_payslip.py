@@ -1,0 +1,369 @@
+# Part of MHC. See LICENSE file for full copyright and licensing details.
+
+from collections import defaultdict
+from odoo import api, models
+
+
+class HrPayslip(models.Model):
+    _inherit = 'hr.payslip'
+
+    def _l10n_ca_ytd_amount(self, code):
+        """Return the year-to-date total (as a positive float) for a salary rule
+        code on prior confirmed payslips in the same calendar year.
+
+        CRA mandates an *annual* (not per-period) contribution maximum for CPP,
+        CPP2, and EI.  Each payslip must cap its contribution at the annual max
+        *minus* what has already been deducted on earlier payslips in the same
+        calendar year.  This method returns the accumulated positive amount so
+        the calling rule can compute the remaining headroom:
+
+            remaining = max(annual_max - ytd, 0)
+            deduction = min(period_contribution, remaining)
+
+        Search criteria:
+          - Same employee as ``self``.
+          - Same calendar year as ``self.date_from``.
+          - Payslip state in ``('done', 'paid')`` — draft/cancelled slips are
+            excluded so only locked, remitted payslips count.
+          - ``slip_id.date_to < self.date_from`` — only payslips that ended
+            *before* the current payslip's start date.
+          - ``salary_rule_id.code == code``.
+          - Excludes the current payslip itself (relevant when the payslip is
+            being re-computed after confirmation).
+
+        Args:
+            code (str): Salary rule code, e.g. ``'CPP_EE'``, ``'EI_EE'``.
+
+        Returns:
+            float: Sum of ``abs(line.total)`` for all matching lines, 0.0 if none.
+        """
+        self.ensure_one()
+        year = self.date_from.year
+        domain = [
+            ('employee_id', '=', self.employee_id.id),
+            ('slip_id.state', 'in', ('done', 'paid')),
+            ('slip_id.date_to', '<', self.date_from),
+            ('slip_id.date_from', '>=', f'{year}-01-01'),
+            ('salary_rule_id.code', '=', code),
+        ]
+        if self.id:
+            domain.append(('slip_id.id', '!=', self.id))
+        lines = self.env['hr.payslip.line'].search(domain)
+        return sum(abs(line.total) for line in lines)
+
+    def _l10n_ca_projected_annual_contribution(self, code, period_amount, annual_max):
+        """Return the projected full-year contribution for a CPP/CPP2/EI rule.
+
+        Used by FED_TAX (K2) and PROV_TAX (K2P) to compute the non-refundable
+        credit on the employee's *true* annual contribution rather than naively
+        annualizing only the current period.
+
+        Computation::
+
+            ytd        = _l10n_ca_ytd_amount(code)              # prior periods
+            current    = abs(period_amount)                     # this period
+            remaining  = max(periods - periods_elapsed - 1, 0)  # future periods
+            projected  = ytd + current + remaining * current
+            return min(projected, annual_max)
+
+        Where ``periods_elapsed`` is the count of prior done/paid payslips for
+        the same employee in the same calendar year.  The "remaining * current"
+        extrapolation assumes the rest of the year continues at the current
+        period's contribution rate, which matches CRA T4127's per-period
+        formula assumption while still respecting the annual cap.
+
+        Args:
+            code (str): Rule code, one of ``'CPP_EE'``, ``'CPP2_EE'``,
+                ``'EI_EE'``.
+            period_amount (float): Current period's contribution (positive or
+                negative; abs() is taken internally).
+            annual_max (float): Annual statutory maximum for the contribution.
+
+        Returns:
+            float: Projected full-year contribution, never exceeding
+                ``annual_max``.
+        """
+        self.ensure_one()
+        ytd = self._l10n_ca_ytd_amount(code)
+        current = abs(period_amount or 0.0)
+        periods = self._l10n_ca_periods_per_year() or 1
+        year = self.date_from.year
+        domain = [
+            ('employee_id', '=', self.employee_id.id),
+            ('state', 'in', ('done', 'paid')),
+            ('date_to', '<', self.date_from),
+            ('date_from', '>=', f'{year}-01-01'),
+        ]
+        if self.id:
+            domain.append(('id', '!=', self.id))
+        periods_elapsed = self.env['hr.payslip'].search_count(domain)
+        remaining = max(periods - periods_elapsed - 1, 0)
+        projected = ytd + current + remaining * current
+        return min(projected, annual_max)
+
+    def _l10n_ca_periods_per_year(self):
+        """Return the number of pay periods per year for this payslip's schedule.
+
+        Reads the schedule from the Structure Type's ``default_schedule_pay``
+        field, falling back to the contract's ``schedule_pay``, and finally to
+        bi-weekly (26) if neither is set.
+        """
+        self.ensure_one()
+        mapping = {
+            'annually': 1,
+            'semi-annually': 2,
+            'quarterly': 4,
+            'bi-monthly': 6,
+            'monthly': 12,
+            'semi-monthly': 24,
+            'bi-weekly': 26,
+            'weekly': 52,
+            'daily': 260,
+        }
+        # Prefer the actual schedule on the employee's contract/version
+        # (Odoo 19 renamed contract_id -> version_id). Only fall back to
+        # the structure type's default if neither is set.
+        sp = None
+        if hasattr(self, 'version_id') and self.version_id:
+            sp = self.version_id.schedule_pay
+        elif hasattr(self, 'contract_id') and self.contract_id:
+            sp = self.contract_id.schedule_pay
+        if not sp and self.struct_id.type_id:
+            sp = self.struct_id.type_id.default_schedule_pay
+        if not sp:
+            sp = 'bi-weekly'
+        return mapping.get(sp, 26)
+
+    def _get_paid_amount(self):
+        self.ensure_one()
+        if self.struct_id.country_id.code != 'CA':
+            return super()._get_paid_amount()
+
+        # Hourly path: sum worked-days lines (WORK100 + LEAVE90)
+        total = sum(
+            line.amount for line in self.worked_days_line_ids
+            if line.code in ('WORK100', 'LEAVE90')
+        )
+        if total > 0:
+            return total
+
+        # Salaried / fallback path
+        base = super()._get_paid_amount() or 0.0
+
+        # Detect monthly wage_type and scale to the actual pay period so that
+        # annualization in FED_TAX/PROV_TAX sees the correct per-period BASIC.
+        wage_type = None
+        if hasattr(self, 'version_id') and self.version_id and 'wage_type' in self.version_id._fields:
+            wage_type = self.version_id.wage_type
+        elif hasattr(self, 'contract_id') and self.contract_id and 'wage_type' in self.contract_id._fields:
+            wage_type = self.contract_id.wage_type
+        if not wage_type and self.struct_id.type_id and 'wage_type' in self.struct_id.type_id._fields:
+            wage_type = self.struct_id.type_id.wage_type
+
+        if wage_type == 'monthly':
+            periods = self._l10n_ca_periods_per_year() or 12
+            return round(base * 12.0 / periods, 2)
+
+        return base
+
+    def _l10n_ca_ytd_pensionable_earnings(self):
+        """Return YTD CPP pensionable earnings from prior confirmed payslips.
+
+        CPP2 triggers only when the employee's cumulative pensionable earnings
+        exceed the annual YMPE (T4127 §4.4).  This helper sums the per-period
+        pensionable amounts from prior done/paid payslips in the same calendar
+        year:
+
+            pensionable_per_slip = max(GROSS − period_exemption, 0)
+
+        The result is used by the CPP2_EE rule to determine whether this period
+        lands in the YMPE → CPP2-ceiling band.
+
+        Returns:
+            float: Year-to-date pensionable earnings (positive), 0.0 if none.
+        """
+        self.ensure_one()
+        try:
+            cpp_exemption = self._rule_parameter('l10n_ca_cpp_basic_exemption')
+        except Exception:
+            cpp_exemption = 3500.0
+        periods = self._l10n_ca_periods_per_year() or 1
+        period_exemption = cpp_exemption / periods
+
+        year = self.date_from.year
+        domain = [
+            ('employee_id', '=', self.employee_id.id),
+            ('state', 'in', ('done', 'paid')),
+            ('date_to', '<', self.date_from),
+            ('date_from', '>=', f'{year}-01-01'),
+        ]
+        if self.id:
+            domain.append(('id', '!=', self.id))
+        prior_slips = self.env['hr.payslip'].search(domain)
+
+        ytd_pensionable = 0.0
+        for slip in prior_slips:
+            gross_lines = slip.line_ids.filtered(lambda l: l.code == 'GROSS')
+            gross_val = sum(abs(line.total) for line in gross_lines)
+            ytd_pensionable += max(gross_val - period_exemption, 0.0)
+        return ytd_pensionable
+
+    def _l10n_ca_get_payslip_line_values(self, code_list, employee_id=None, compute_sum=False):
+        """Compute Canadian payroll line values using rule parameters."""
+        if not employee_id:
+            return defaultdict(lambda: defaultdict(float))
+        payslip = self.filtered(lambda p: p.employee_id.id == employee_id)
+        if not payslip:
+            return defaultdict(lambda: defaultdict(float))
+        payslip = payslip[0]
+
+        result = defaultdict(lambda: defaultdict(float))
+        date_from = payslip.date_from
+
+        # Get rule parameters
+        def get_param(code, fallback=0):
+            try:
+                return payslip._rule_parameter(code)
+            except Exception:
+                return fallback
+
+        # CPP parameters
+        cpp_rate = get_param('l10n_ca_cpp_employee_rate', 0.0595)
+        cpp_ympe = get_param('l10n_ca_cpp_ympe', 74600)
+        cpp_exemption = get_param('l10n_ca_cpp_basic_exemption', 3500)
+        cpp_max = get_param('l10n_ca_cpp_max_contribution', 4230.45)
+
+        # CPP2 parameters
+        cpp2_rate = get_param('l10n_ca_cpp2_rate', 0.04)
+        cpp2_ceiling = get_param('l10n_ca_cpp2_ceiling', 85000)
+        cpp2_max = get_param('l10n_ca_cpp2_max_contribution', 416.00)
+
+        # EI parameters
+        ei_rate = get_param('l10n_ca_ei_employee_rate', 0.0163)
+        ei_max_premium = get_param('l10n_ca_ei_max_premium', 1123.07)
+        ei_employer_mult = get_param('l10n_ca_ei_employer_multiplier', 1.4)
+
+        # Federal tax brackets (threshold, rate)
+        fed_brackets = [
+            (get_param('l10n_ca_fed_bracket_1', 58523), get_param('l10n_ca_fed_rate_1', 0.14)),
+            (get_param('l10n_ca_fed_bracket_2', 117045), get_param('l10n_ca_fed_rate_2', 0.205)),
+            (get_param('l10n_ca_fed_bracket_3', 181440), get_param('l10n_ca_fed_rate_3', 0.26)),
+            (get_param('l10n_ca_fed_bracket_4', 258482), get_param('l10n_ca_fed_rate_4', 0.29)),
+            (float('inf'), get_param('l10n_ca_fed_rate_5', 0.33)),
+        ]
+        fed_bpa = get_param('l10n_ca_fed_basic_personal_amount', 16452)
+
+        # Ontario provincial tax brackets (default)
+        prov_brackets = [
+            (get_param('l10n_ca_on_bracket_1', 52886), get_param('l10n_ca_on_rate_1', 0.0505)),
+            (get_param('l10n_ca_on_bracket_2', 105775), get_param('l10n_ca_on_rate_2', 0.0915)),
+            (get_param('l10n_ca_on_bracket_3', 150000), get_param('l10n_ca_on_rate_3', 0.1116)),
+            (get_param('l10n_ca_on_bracket_4', 220000), get_param('l10n_ca_on_rate_4', 0.1216)),
+            (float('inf'), get_param('l10n_ca_on_rate_5', 0.1316)),
+        ]
+
+        gross = payslip._get_line_values(['GROSS'], compute_sum=True)
+        gross_amount = gross.get('GROSS', {}).get(payslip.id, {}).get('total', 0)
+
+        periods = payslip._l10n_ca_periods_per_year()
+
+        # Pre-compute employee contributions needed for employer calculations
+        employer_deps = {
+            'CPP_ER': 'CPP_EE',
+            'CPP2_ER': 'CPP2_EE',
+            'EI_ER': 'EI_EE',
+        }
+        for code in code_list:
+            dep = employer_deps.get(code)
+            if dep and dep not in code_list and dep not in result:
+                dep_result = self._l10n_ca_get_payslip_line_values([dep], employee_id=employee_id)
+                result[dep][payslip.id] = dep_result[dep].get(payslip.id, {'total': 0})
+
+        for code in code_list:
+            if code == 'CPP_EE':
+                if payslip.version_id.l10n_ca_cpp_exempt:
+                    result[code][payslip.id] = {'total': 0}
+                    continue
+                period_exemption = cpp_exemption / periods
+                pensionable = max(gross_amount - period_exemption, 0)
+                period_contribution = pensionable * cpp_rate
+                # CRA: annual cumulative cap, NOT per-period cap.
+                ytd_cpp = payslip._l10n_ca_ytd_amount('CPP_EE')
+                remaining_annual = max(cpp_max - ytd_cpp, 0)
+                cpp_contribution = min(period_contribution, remaining_annual)
+                result[code][payslip.id] = {'total': round(cpp_contribution, 2)}
+
+            elif code == 'CPP2_EE':
+                if payslip.version_id.l10n_ca_cpp_exempt:
+                    result[code][payslip.id] = {'total': 0}
+                    continue
+                period_exemption = cpp_exemption / periods
+                # CRA T4127 §4.4: CPP2 applies only once YTD pensionable
+                # earnings exceed the annual YMPE.  Use cumulative approach.
+                ytd_pensionable = payslip._l10n_ca_ytd_pensionable_earnings()
+                period_pensionable = max(gross_amount - period_exemption, 0)
+                new_ytd_pensionable = ytd_pensionable + period_pensionable
+                if new_ytd_pensionable <= cpp_ympe:
+                    cpp2_contribution = 0
+                else:
+                    band_low = max(ytd_pensionable, cpp_ympe)
+                    band_high = min(new_ytd_pensionable, cpp2_ceiling)
+                    cpp2_pensionable_period = max(band_high - band_low, 0)
+                    period_contribution = cpp2_pensionable_period * cpp2_rate
+                    # CRA: annual cumulative cap, NOT per-period cap.
+                    ytd_cpp2 = payslip._l10n_ca_ytd_amount('CPP2_EE')
+                    remaining_annual = max(cpp2_max - ytd_cpp2, 0)
+                    cpp2_contribution = min(period_contribution, remaining_annual)
+                result[code][payslip.id] = {'total': round(cpp2_contribution, 2)}
+
+            elif code == 'EI_EE':
+                if payslip.version_id.l10n_ca_ei_exempt:
+                    result[code][payslip.id] = {'total': 0}
+                    continue
+                # CRA T4127 §4.1: EI premium = gross × rate.  The only cap
+                # is the annual premium maximum; no per-period insurable cap.
+                period_premium = gross_amount * ei_rate
+                ytd_ei = payslip._l10n_ca_ytd_amount('EI_EE')
+                remaining_annual = max(ei_max_premium - ytd_ei, 0)
+                ei_premium = min(period_premium, remaining_annual)
+                result[code][payslip.id] = {'total': round(ei_premium, 2)}
+
+            elif code == 'FED_TAX':
+                annual_income = gross_amount * periods
+                tax = self._compute_progressive_tax(annual_income, fed_brackets)
+                credit = fed_bpa * fed_brackets[0][1]  # BPA credit at lowest bracket rate
+                annual_tax = max(tax - credit, 0)
+                additional = payslip.version_id.l10n_ca_additional_tax or 0
+                result[code][payslip.id] = {'total': round(annual_tax / periods + additional, 2)}
+
+            elif code == 'PROV_TAX':
+                annual_income = gross_amount * periods
+                tax = self._compute_progressive_tax(annual_income, prov_brackets)
+                result[code][payslip.id] = {'total': round(tax / periods, 2)}
+
+            elif code == 'CPP_ER':
+                cpp_ee = result.get('CPP_EE', {}).get(payslip.id, {}).get('total', 0)
+                result[code][payslip.id] = {'total': round(cpp_ee, 2)}
+
+            elif code == 'CPP2_ER':
+                cpp2_ee = result.get('CPP2_EE', {}).get(payslip.id, {}).get('total', 0)
+                result[code][payslip.id] = {'total': round(cpp2_ee, 2)}
+
+            elif code == 'EI_ER':
+                ei_ee = result.get('EI_EE', {}).get(payslip.id, {}).get('total', 0)
+                result[code][payslip.id] = {'total': round(ei_ee * ei_employer_mult, 2)}
+
+        return result
+
+    @staticmethod
+    def _compute_progressive_tax(income, brackets):
+        """Compute progressive tax given income and list of (threshold, rate) tuples."""
+        tax = 0
+        prev_threshold = 0
+        for threshold, rate in brackets:
+            taxable = min(income, threshold) - prev_threshold
+            if taxable <= 0:
+                break
+            tax += taxable * rate
+            prev_threshold = threshold
+        return tax

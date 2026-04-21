@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+    <record id="hr_employee_view_form_ca" model="ir.ui.view">
+        <field name="name">hr.employee.form.ca</field>
+        <field name="model">hr.employee</field>
+        <field name="inherit_id" ref="hr.view_employee_form"/>
+        <field name="arch" type="xml">
+            <notebook position="inside">
+                <page string="Canadian Payroll" name="l10n_ca_payroll"
+                      invisible="country_code != 'CA'">
+                    <group string="Canadian Payroll Information">
+                        <group>
+                            <field name="l10n_ca_sin"
+                                   placeholder="e.g. 123 456 789"/>
+                            <field name="l10n_ca_td1_claim_code"/>
+                        </group>
+                        <group>
+                            <field name="l10n_ca_province_id"/>
+                        </group>
+                    </group>
+                </page>
+            </notebook>
+        </field>
+    </record>
+</odoo>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+
+    <!-- Payroll → Year-End Reporting → Remittances -->
+    <menuitem id="menu_l10n_ca_remittance"
+              name="Remittances"
+              parent="menu_hr_payroll_year_end"
+              action="action_l10n_ca_remittance"
+              sequence="50"/>
+
+    <!-- Payroll → Year-End Reporting → Overdue Remittances -->
+    <menuitem id="menu_l10n_ca_remittance_late"
+              name="Overdue Remittances"
+              parent="menu_hr_payroll_year_end"
+              action="action_l10n_ca_remittance_late"
+              sequence="55"/>
+
+    <!-- Configuration menu under Payroll root (accessible to managers) -->
+    <menuitem id="menu_l10n_ca_remittance_config"
+              name="Remittance Configuration"
+              parent="menu_hr_payroll_year_end"
+              action="action_l10n_ca_remittance_config"
+              groups="hr_payroll.group_hr_payroll_manager"
+              sequence="90"/>
+
+</odoo>

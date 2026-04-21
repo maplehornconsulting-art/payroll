@@ -349,6 +349,15 @@ A future `l10n_ca_qc_hr_payroll` module may be developed for Quebec.
 
 ## Changelog
 
+### v1.8 (April 2026) — High-earner U1 income deduction fix
+
+- ✅ **Bug fix — FED_TAX & PROV_TAX: U1 (enhanced CPP income deduction) no longer capped**: Per CRA T4127 §5.2, the U1 income deduction must be computed as *per-period enhanced CPP × pay periods* with **no annual cap**. The previous code used `_l10n_ca_projected_annual_contribution` (which caps at the annual CPP maximum of $4,230.45) for both U1 and K2/K2P, overstating taxable income by up to $813/year for high earners (gross > ~$2,734 biweekly). At $6,000 biweekly (NS), this caused Federal tax to be over-withheld by $8.12/period and Provincial tax by $5.48/period.
+- ✅ **K2/K2P credits unchanged** — the `_l10n_ca_projected_annual_contribution` helper (capped) is still used for the base CPP and EI non-refundable credits, as these reflect actual employee contributions.
+- ✅ Added inline comments in both `salary_rule_ca_fed_tax` and `salary_rule_ca_prov_tax` citing CRA T4127 §5.2 to explain the intentional cap/uncap distinction, preventing future regressions.
+- ✅ New regression tests: NS @ $4,000 biweekly (Fed ≈$544.11, Prov ≈$491.66) and NS @ $6,000 biweekly (Fed $1,029.20, Prov $838.16, CPP $348.99, EI $97.80, Net $3,685.85) — all matching CRA PDOC within ±$0.10.
+- ✅ Updated `_fed_tax` and `_prov_tax` test formula helpers to mirror the corrected uncapped U1 logic.
+- ⚠️ **Upgrade required**: run `-u l10n_ca_hr_payroll_except_QC` on existing databases so the corrected FED_TAX and PROV_TAX salary rules take effect on newly computed payslips. Previously confirmed payslips are unaffected.
+
 ### v1.6 (April 2026) — EI cap fix, CPP2 YTD-based triggering
 
 - ✅ **Bug #1 — EI per-period insurable cap removed**: EI premium is now computed as `gross × rate` (T4127 §4.1). The old code incorrectly capped insurable earnings at `ei_max_insurable / periods` per period, producing an EI of $43.20 instead of the correct $65.20 at $4,000 biweekly. The annual maximum premium (`ei_max_premium`) remains the only cap.

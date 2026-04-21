@@ -379,7 +379,7 @@ class TestOnPayslipOhpIntact:
 # High-earner NS $4,000 biweekly — Bug #1 and Bug #2 regression tests
 # ---------------------------------------------------------------------------
 
-def _cpp2_ee_4k(gross: float, periods: int, ytd_cpp2: float = 0.0,
+def _cpp2_ee(gross: float, periods: int, ytd_cpp2: float = 0.0,
                 ytd_pensionable: float = 0.0) -> float:
     """CPP2_EE for one period using the corrected YTD-pensionable approach.
 
@@ -435,7 +435,7 @@ class TestHighEarner4000BiweeklyNs:
         Correct (T4127 §4.4): CPP2 = 0 until cumulative pensionable earnings
         exceed the annual YMPE ($74,600).  At period 1, YTD pensionable = 0.
         """
-        cpp2 = _cpp2_ee_4k(self.GROSS, self.PERIODS, ytd_cpp2=0.0, ytd_pensionable=0.0)
+        cpp2 = _cpp2_ee(self.GROSS, self.PERIODS, ytd_cpp2=0.0, ytd_pensionable=0.0)
         assert cpp2 == 0.0, (
             f"CPP2_EE must be $0 at period 1 (YTD pensionable=0 < YMPE={self._CPP_YMPE}), "
             f"got {cpp2}.  Bug #2: old value was ~$16.00."
@@ -462,7 +462,7 @@ class TestHighEarner4000BiweeklyNs:
         ytd_cpp2 = 0.0
         ytd_pensionable = 0.0
         for p in range(1, 21):
-            cpp2 = _cpp2_ee_4k(self.GROSS, self.PERIODS, ytd_cpp2=ytd_cpp2,
+            cpp2 = _cpp2_ee(self.GROSS, self.PERIODS, ytd_cpp2=ytd_cpp2,
                                ytd_pensionable=ytd_pensionable)
             if p < 20:
                 assert cpp2 == 0.0, (
@@ -482,7 +482,7 @@ class TestHighEarner4000BiweeklyNs:
         ytd_cpp2 = 0.0
         ytd_pensionable = 0.0
         for _ in range(self.PERIODS):
-            cpp2 = _cpp2_ee_4k(self.GROSS, self.PERIODS, ytd_cpp2=ytd_cpp2,
+            cpp2 = _cpp2_ee(self.GROSS, self.PERIODS, ytd_cpp2=ytd_cpp2,
                                ytd_pensionable=ytd_pensionable)
             ytd_cpp2 += cpp2
             ytd_pensionable += max(self.GROSS - period_exemption, 0.0)
@@ -503,7 +503,7 @@ class TestHighEarner4000BiweeklyNs:
     def test_net_pay_period1_plausible(self):
         """Net pay at period 1 must be positive and near $2,669 (PDOC: ~$2,669.05)."""
         cpp  = _cpp_ee(self.GROSS, self.PERIODS, ytd=0.0)
-        cpp2 = _cpp2_ee_4k(self.GROSS, self.PERIODS, ytd_cpp2=0.0, ytd_pensionable=0.0)
+        cpp2 = _cpp2_ee(self.GROSS, self.PERIODS, ytd_cpp2=0.0, ytd_pensionable=0.0)
         ei   = _ei_ee(self.GROSS, self.PERIODS, ytd=0.0)
         fed  = _fed_tax(self.GROSS, self.PERIODS)
         prov = _prov_tax(self.GROSS, self.PERIODS, _NS_BRACKETS, _NS_BPA, [])

@@ -349,6 +349,31 @@ A future `l10n_ca_qc_hr_payroll` module may be developed for Quebec.
 
 ## Changelog
 
+### v1.11 (April 2026) — Replaced runtime clone with explicit XML declarations for the Salaried structure
+
+**Root cause:** Any runtime "clone Hourly rules into Salaried" strategy is
+architecturally fragile. It depends on category load order, xmlid resolution,
+and `Rule.create()` not raising on any of ~12 rules. One swallowed exception
+→ the user sees a blank Salaried payslip. This applied on fresh install, and
+again on every uninstall + reinstall cycle.
+
+**Fix:** Replaced the entire clone-at-runtime approach with explicit XML
+declarations for both structures, mirroring how Odoo's own `l10n_be_hr_payroll`
+and `l10n_us_hr_payroll` modules ship multiple structures.
+
+- ✅ Every CA salary rule is now declared **twice** in `hr_salary_rule_data.xml`:
+  once for the Hourly structure, once for the Salaried structure (suffix `_salaried`).
+- ✅ Both records share an identical `amount_python_compute` one-liner that calls
+  a `_l10n_ca_compute_*` helper method on `hr.payslip`. The actual math lives
+  in Python in a single place and is never duplicated.
+- ✅ All clone-related code deleted: `_l10n_ca_clone_rules_to_salaried`,
+  `_CLONE_FIELDS`, `_REPAIR_FIELDS`, the `<function>` tag, and the clone trigger
+  in `post_init_hook`.
+- ✅ A diagnostic `_register_hook` is kept on `hr.payroll.structure` that **only
+  logs** a comparison of rule counts at server startup — it never mutates data.
+- ✅ Works on fresh install, upgrade, uninstall+reinstall — no manual intervention.
+- ⚠️  Run `-u l10n_ca_hr_payroll_except_QC` when upgrading from v1.10.
+
 ### v1.9 (April 2026) — Configurable Federal BPA phase-out
 
 - ✅ New per-contract Boolean `l10n_ca_apply_bpa_phase_out` (default **OFF**).

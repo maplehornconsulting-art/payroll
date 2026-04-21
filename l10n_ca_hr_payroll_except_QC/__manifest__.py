@@ -13,7 +13,7 @@
         'hr_payroll_holidays',
     ],
     'auto_install': False,
-    'version': '19.0.2.1',
+    'version': '19.0.2.2',
     'description': """
 Canada Payroll Rules.
 =====================

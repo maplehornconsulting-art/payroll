@@ -28,6 +28,8 @@ _FEED_TO_RULE_PARAM = {
     # Federal — BPA
     "federal.bpaf.max": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_fed_basic_personal_amount",
     "federal.bpaf.min": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_fed_bpa_min",
+    # Federal — Canada Employment Amount (CEA) — federal non-refundable credit only
+    "federal.cea": "l10n_ca_hr_payroll_except_QC.rule_parameter_l10n_ca_fed_canada_employment_amount",
     # Federal — k1_rate: same numeric value as rate_1, but semantically it is
     # the "lowest rate" constant used for non-refundable tax credits.
     # TODO: confirm whether k1_rate maps to rule_parameter_l10n_ca_fed_rate_1

@@ -41,12 +41,15 @@ _CPP_RATE = 0.0595
 _CPP_EXEMPTION = 3500.0
 _CPP_MAX = 4230.20        # annual employee CPP max
 _CPP_YMPE = 73200.0       # annual YMPE
+_CPP_BASE_RATE = 0.0495   # base portion → K2/K2P non-refundable credit
+_CPP_ENHANCED_RATE = 0.0100  # enhanced portion → income deduction (T4127 U1)
 _CPP2_RATE = 0.04
 _CPP2_CEILING = 85400.0
 _CPP2_MAX = 396.00        # annual employee CPP2 max
 _EI_RATE = 0.0166
 _EI_MAX_INSURABLE = 65700.0
 _EI_MAX_PREMIUM = 1091.22
+_CEA = 1500.0             # Canada Employment Amount (federal only, 2026)
 
 # Federal brackets (threshold, rate)
 _FED_BRACKETS = [
@@ -157,57 +160,88 @@ def _compute_k2(ytd_cpp: float, current_cpp: float,
                 ytd_cpp2: float, current_cpp2: float,
                 ytd_ei: float, current_ei: float,
                 periods: int, periods_elapsed: int) -> float:
-    """Replica of the fixed FED_TAX K2 credit logic."""
+    """Replica of the fixed FED_TAX K2 credit logic.
+
+    CRA T4127: only the base CPP portion (4.95/5.95) yields a non-refundable
+    credit.  The enhanced CPP (1.00/5.95) and all of CPP2 are deducted from
+    income instead (variable U1) and must NOT appear in K2.
+    """
     annual_cpp = _projected_annual_contribution(
         ytd_cpp, current_cpp, periods, periods_elapsed, _CPP_MAX)
-    annual_cpp2 = _projected_annual_contribution(
-        ytd_cpp2, current_cpp2, periods, periods_elapsed, _CPP2_MAX)
     annual_ei = _projected_annual_contribution(
         ytd_ei, current_ei, periods, periods_elapsed, _EI_MAX_PREMIUM)
-    return (annual_cpp + annual_cpp2 + annual_ei) * _FED_BRACKETS[0][1]
+    # Split CPP: base portion only in K2
+    annual_cpp_base = annual_cpp * (_CPP_BASE_RATE / _CPP_RATE)
+    return (annual_cpp_base + annual_ei) * _FED_BRACKETS[0][1]
 
 
 def _compute_k2p(ytd_cpp: float, current_cpp: float,
                  ytd_cpp2: float, current_cpp2: float,
                  ytd_ei: float, current_ei: float,
                  periods: int, periods_elapsed: int) -> float:
-    """Replica of the fixed PROV_TAX K2P credit logic (Ontario rate)."""
+    """Replica of the fixed PROV_TAX K2P credit logic (Ontario rate).
+
+    Same CPP base/enhanced split as K2; CEA is federal only and not used here.
+    """
+    annual_cpp = _projected_annual_contribution(
+        ytd_cpp, current_cpp, periods, periods_elapsed, _CPP_MAX)
+    annual_ei = _projected_annual_contribution(
+        ytd_ei, current_ei, periods, periods_elapsed, _EI_MAX_PREMIUM)
+    annual_cpp_base = annual_cpp * (_CPP_BASE_RATE / _CPP_RATE)
+    return (annual_cpp_base + annual_ei) * _ON_BRACKETS[0][1]
+
+
+def _fed_tax_full(gross: float, periods: int, periods_elapsed: int,
+                  ytd_cpp: float, ytd_cpp2: float, ytd_ei: float) -> float:
+    """Replica of the full FED_TAX rule (tax - K1 - K2) / periods.
+
+    Implements the corrected T4127 algorithm:
+    - Income reduced by enhanced CPP (1.00/5.95 portion) and full CPP2 (U1).
+    - K1 includes Canada Employment Amount (CEA).
+    - K2 uses only the base CPP (4.95/5.95 portion); no CPP2.
+    """
+    current_cpp = _cpp_ee(gross, periods, ytd_cpp)
+    current_cpp2 = _cpp2_ee(gross, periods, ytd_cpp2)
+    current_ei = _ei_ee(gross, periods, ytd_ei)
     annual_cpp = _projected_annual_contribution(
         ytd_cpp, current_cpp, periods, periods_elapsed, _CPP_MAX)
     annual_cpp2 = _projected_annual_contribution(
         ytd_cpp2, current_cpp2, periods, periods_elapsed, _CPP2_MAX)
     annual_ei = _projected_annual_contribution(
         ytd_ei, current_ei, periods, periods_elapsed, _EI_MAX_PREMIUM)
-    return (annual_cpp + annual_cpp2 + annual_ei) * _ON_BRACKETS[0][1]
-
-
-def _fed_tax_full(gross: float, periods: int, periods_elapsed: int,
-                  ytd_cpp: float, ytd_cpp2: float, ytd_ei: float) -> float:
-    """Replica of the full FED_TAX rule (tax - K1 - K2) / periods."""
-    annual_income = gross * periods
+    # Split CPP and reduce income by enhanced portion + all of CPP2
+    annual_cpp_base = annual_cpp * (_CPP_BASE_RATE / _CPP_RATE)
+    annual_enhanced_cpp = annual_cpp - annual_cpp_base
+    annual_income = gross * periods - annual_enhanced_cpp - annual_cpp2
     bpa = _fed_bpa(annual_income)
     tax = _progressive_tax(annual_income, _FED_BRACKETS)
-    k1 = bpa * _FED_BRACKETS[0][1]
-    current_cpp = _cpp_ee(gross, periods, ytd_cpp)
-    current_cpp2 = _cpp2_ee(gross, periods, ytd_cpp2)
-    current_ei = _ei_ee(gross, periods, ytd_ei)
-    k2 = _compute_k2(ytd_cpp, current_cpp, ytd_cpp2, current_cpp2,
-                     ytd_ei, current_ei, periods, periods_elapsed)
+    k1 = (bpa + _CEA) * _FED_BRACKETS[0][1]
+    k2 = (annual_cpp_base + annual_ei) * _FED_BRACKETS[0][1]
     annual_tax = max(tax - k1 - k2, 0.0)
     return round(-(annual_tax / periods), 2)
 
 
 def _prov_tax_on_full(gross: float, periods: int, periods_elapsed: int,
                       ytd_cpp: float, ytd_cpp2: float, ytd_ei: float) -> float:
-    """Replica of the full PROV_TAX rule for Ontario (with surtax and K2P)."""
-    annual_income = gross * periods
-    tax = _progressive_tax(annual_income, _ON_BRACKETS)
-    k1p = _ON_BPA * _ON_BRACKETS[0][1]
+    """Replica of the full PROV_TAX rule for Ontario (with surtax and K2P).
+
+    Same income reduction as federal; CEA is federal-only and not used here.
+    """
     current_cpp = _cpp_ee(gross, periods, ytd_cpp)
     current_cpp2 = _cpp2_ee(gross, periods, ytd_cpp2)
     current_ei = _ei_ee(gross, periods, ytd_ei)
-    k2p = _compute_k2p(ytd_cpp, current_cpp, ytd_cpp2, current_cpp2,
-                       ytd_ei, current_ei, periods, periods_elapsed)
+    annual_cpp = _projected_annual_contribution(
+        ytd_cpp, current_cpp, periods, periods_elapsed, _CPP_MAX)
+    annual_cpp2 = _projected_annual_contribution(
+        ytd_cpp2, current_cpp2, periods, periods_elapsed, _CPP2_MAX)
+    annual_ei = _projected_annual_contribution(
+        ytd_ei, current_ei, periods, periods_elapsed, _EI_MAX_PREMIUM)
+    annual_cpp_base = annual_cpp * (_CPP_BASE_RATE / _CPP_RATE)
+    annual_enhanced_cpp = annual_cpp - annual_cpp_base
+    annual_income = gross * periods - annual_enhanced_cpp - annual_cpp2
+    tax = _progressive_tax(annual_income, _ON_BRACKETS)
+    k1p = _ON_BPA * _ON_BRACKETS[0][1]
+    k2p = (annual_cpp_base + annual_ei) * _ON_BRACKETS[0][1]
     basic_tax = max(tax - k1p - k2p, 0.0)
     surtax = 0.0
     for threshold, surrate in _ON_SURTAX:
@@ -266,24 +300,25 @@ class TestScenario1Week1HighEarner:
         )
 
     def test_k2_uses_full_cpp_max(self):
-        """K2 credit base for CPP must be cpp_max, not 0 or a fraction."""
+        """K2 credit must include at least the base CPP portion at the annual cap."""
         ytd_cpp = 0.0
         current_cpp = _cpp_ee(self.GROSS, self.PERIODS, ytd_cpp)
         k2 = _compute_k2(ytd_cpp, current_cpp, 0.0, 0.0, 0.0,
                           _ei_ee(self.GROSS, self.PERIODS, 0.0),
                           self.PERIODS, self.PERIODS_ELAPSED)
-        # K2 must be >= cpp_max * lowest_rate (at minimum CPP contributes the max)
-        min_k2 = _CPP_MAX * _FED_BRACKETS[0][1]
+        # K2 uses only the base CPP portion (4.95/5.95) plus EI.
+        # The base CPP contribution alone (at the annual cap) must be credited.
+        min_k2 = _CPP_MAX * (_CPP_BASE_RATE / _CPP_RATE) * _FED_BRACKETS[0][1]
         assert k2 >= min_k2 - 0.01
 
     def test_k2p_uses_full_cpp_max(self):
-        """K2P credit base for CPP must be cpp_max."""
+        """K2P credit must include at least the base CPP portion at the annual cap."""
         ytd_cpp = 0.0
         current_cpp = _cpp_ee(self.GROSS, self.PERIODS, ytd_cpp)
         k2p = _compute_k2p(ytd_cpp, current_cpp, 0.0, 0.0, 0.0,
                             _ei_ee(self.GROSS, self.PERIODS, 0.0),
                             self.PERIODS, self.PERIODS_ELAPSED)
-        min_k2p = _CPP_MAX * _ON_BRACKETS[0][1]
+        min_k2p = _CPP_MAX * (_CPP_BASE_RATE / _CPP_RATE) * _ON_BRACKETS[0][1]
         assert k2p >= min_k2p - 0.01
 
 
@@ -474,27 +509,27 @@ class TestScenario4LowEarnerRegression:
         assert projected == pytest.approx(naive, abs=0.02)
 
     def test_k2_equals_old_formula(self):
-        """K2 from new logic must equal K2 from old naive period×periods formula."""
+        """For low earners (no cap hit), YTD-aware K2 must equal the base-CPP-only formula."""
         current_cpp = _cpp_ee(self.GROSS, self.PERIODS, 0.0)
         current_cpp2 = _cpp2_ee(self.GROSS, self.PERIODS, 0.0)
         current_ei = _ei_ee(self.GROSS, self.PERIODS, 0.0)
 
-        # New (YTD-aware) K2
+        # New (YTD-aware, base-CPP-only) K2
         k2_new = _compute_k2(0.0, current_cpp, 0.0, current_cpp2, 0.0,
                                current_ei, self.PERIODS, self.PERIODS_ELAPSED)
 
-        # Old (naive) K2 formula
+        # Expected formula: base CPP only (no CPP2 credit) × naive periods
         annual_cpp_naive = current_cpp * self.PERIODS
-        annual_cpp2_naive = current_cpp2 * self.PERIODS
+        annual_cpp_base_naive = annual_cpp_naive * (_CPP_BASE_RATE / _CPP_RATE)
         annual_ei_naive = current_ei * self.PERIODS
-        k2_old = (annual_cpp_naive + annual_cpp2_naive + annual_ei_naive) * _FED_BRACKETS[0][1]
+        k2_expected = (annual_cpp_base_naive + annual_ei_naive) * _FED_BRACKETS[0][1]
 
-        assert k2_new == pytest.approx(k2_old, abs=0.02), (
-            f"Low-earner regression: new K2 {k2_new} != old K2 {k2_old}"
+        assert k2_new == pytest.approx(k2_expected, abs=0.02), (
+            f"Low-earner K2: new={k2_new}, expected={k2_expected}"
         )
 
     def test_k2p_equals_old_formula(self):
-        """K2P from new logic must equal K2P from old naive formula for low earners."""
+        """For low earners (no cap hit), YTD-aware K2P must equal the base-CPP-only formula."""
         current_cpp = _cpp_ee(self.GROSS, self.PERIODS, 0.0)
         current_cpp2 = _cpp2_ee(self.GROSS, self.PERIODS, 0.0)
         current_ei = _ei_ee(self.GROSS, self.PERIODS, 0.0)
@@ -503,36 +538,40 @@ class TestScenario4LowEarnerRegression:
                                  current_ei, self.PERIODS, self.PERIODS_ELAPSED)
 
         annual_cpp_naive = current_cpp * self.PERIODS
-        annual_cpp2_naive = current_cpp2 * self.PERIODS
+        annual_cpp_base_naive = annual_cpp_naive * (_CPP_BASE_RATE / _CPP_RATE)
         annual_ei_naive = current_ei * self.PERIODS
-        k2p_old = (annual_cpp_naive + annual_cpp2_naive + annual_ei_naive) * _ON_BRACKETS[0][1]
+        k2p_expected = (annual_cpp_base_naive + annual_ei_naive) * _ON_BRACKETS[0][1]
 
-        assert k2p_new == pytest.approx(k2p_old, abs=0.02), (
-            f"Low-earner regression: new K2P {k2p_new} != old K2P {k2p_old}"
+        assert k2p_new == pytest.approx(k2p_expected, abs=0.02), (
+            f"Low-earner K2P: new={k2p_new}, expected={k2p_expected}"
         )
 
     def test_fed_tax_unchanged_for_low_earner(self):
-        """FED_TAX for $1,200/wk should be unaffected by the fix."""
-        # Old formula: period × periods for K2 base
+        """FED_TAX for $1,200/wk uses the corrected T4127 formula consistently."""
         current_cpp = _cpp_ee(self.GROSS, self.PERIODS, 0.0)
         current_cpp2 = _cpp2_ee(self.GROSS, self.PERIODS, 0.0)
         current_ei = _ei_ee(self.GROSS, self.PERIODS, 0.0)
-        annual_income = self.GROSS * self.PERIODS
+
+        # Corrected formula: base CPP only in K2, income reduced by enhanced CPP + CPP2,
+        # K1 includes CEA.
+        annual_cpp = current_cpp * self.PERIODS
+        annual_cpp2 = current_cpp2 * self.PERIODS
+        annual_ei = current_ei * self.PERIODS
+        annual_cpp_base = annual_cpp * (_CPP_BASE_RATE / _CPP_RATE)
+        annual_enhanced_cpp = annual_cpp - annual_cpp_base
+        annual_income = self.GROSS * self.PERIODS - annual_enhanced_cpp - annual_cpp2
         bpa = _fed_bpa(annual_income)
         tax = _progressive_tax(annual_income, _FED_BRACKETS)
-        k1 = bpa * _FED_BRACKETS[0][1]
-        k2_old = (current_cpp * self.PERIODS
-                  + current_cpp2 * self.PERIODS
-                  + current_ei * self.PERIODS) * _FED_BRACKETS[0][1]
-        annual_tax_old = max(tax - k1 - k2_old, 0.0)
-        fed_old = round(-(annual_tax_old / self.PERIODS), 2)
+        k1 = (bpa + _CEA) * _FED_BRACKETS[0][1]
+        k2 = (annual_cpp_base + annual_ei) * _FED_BRACKETS[0][1]
+        annual_tax = max(tax - k1 - k2, 0.0)
+        fed_expected = round(-(annual_tax / self.PERIODS), 2)
 
-        # New formula (YTD-aware, but no cap hit for low earner)
         fed_new = _fed_tax_full(self.GROSS, self.PERIODS, self.PERIODS_ELAPSED,
                                  0.0, 0.0, 0.0)
 
-        assert fed_new == pytest.approx(fed_old, abs=0.02), (
-            f"Low-earner FED_TAX changed: old={fed_old}, new={fed_new}"
+        assert fed_new == pytest.approx(fed_expected, abs=0.02), (
+            f"FED_TAX replica mismatch: new={fed_new}, expected={fed_expected}"
         )
 
 

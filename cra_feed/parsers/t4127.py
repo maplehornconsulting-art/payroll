@@ -609,9 +609,83 @@ def _parse_brackets_from_ul(soup: BeautifulSoup) -> list[dict]:
 # Federal section
 # ---------------------------------------------------------------------------
 
+# Plausible range for the Canada Employment Amount (CEA) indexed value.
+# Historical values: 2025=$1,471, 2026=$1,500.  The range is wide to survive
+# several years of indexing without requiring a code change.
+_CEA_MIN_PLAUSIBLE = 1_000.0
+_CEA_MAX_PLAUSIBLE = 5_000.0
+
+
+def _parse_cea(soup: BeautifulSoup) -> float | None:
+    """Try to extract the Canada Employment Amount (CEA) from the T4127 HTML.
+
+    CRA T4127 defines CEA in the "Definitions of variables" section (Chapter 5).
+    It appears near phrases like "Canada employment amount" or the token "CEA".
+
+    Returns the parsed dollar value when found, or *None* when the page
+    structure does not yield a confident result (the caller should then fall
+    back to the hard-coded parameter value already in the Odoo database and
+    log a warning so the value is reviewed at annual update time).
+
+    .. note::
+        This extraction is best-effort.  CRA sometimes embeds CEA in a prose
+        paragraph rather than a structured table, making reliable parsing
+        fragile.  If the scraper returns *None*, the existing hard-coded rule
+        parameter value ($1,500 for 2026) remains in effect — no data is lost.
+        **Annual review:** confirm the CEA value each January when CRA releases
+        the updated T4127 and update ``rule_parameter_l10n_ca_fed_canada_employment_amount``
+        if needed.
+    """
+    text = soup.get_text(" ", strip=True)
+
+    # Pattern 1: "canada employment amount ... $X,XXX" within ~200 chars
+    cea_re = re.compile(
+        r"canada\s+employment\s+amount[^$\d]{0,200}\$([\d,]+(?:\.\d+)?)",
+        re.I,
+    )
+    m = cea_re.search(text)
+    if m:
+        try:
+            v = float(m.group(1).replace(",", ""))
+            if _CEA_MIN_PLAUSIBLE <= v <= _CEA_MAX_PLAUSIBLE:
+                return v
+        except ValueError:
+            pass
+
+    # Pattern 2: "CEA = $X,XXX" or "CEA is $X,XXX"
+    cea_eq_re = re.compile(
+        r"\bCEA\s*(?:=|is)\s*\$([\d,]+(?:\.\d+)?)",
+        re.I,
+    )
+    m = cea_eq_re.search(text)
+    if m:
+        try:
+            v = float(m.group(1).replace(",", ""))
+            if _CEA_MIN_PLAUSIBLE <= v <= _CEA_MAX_PLAUSIBLE:
+                return v
+        except ValueError:
+            pass
+
+    # Pattern 3: "$X,XXX ... canada employment amount" (reverse order)
+    cea_rev_re = re.compile(
+        r"\$([\d,]+(?:\.\d+)?)[^$\d]{0,200}canada\s+employment\s+amount",
+        re.I,
+    )
+    m = cea_rev_re.search(text)
+    if m:
+        try:
+            v = float(m.group(1).replace(",", ""))
+            if _CEA_MIN_PLAUSIBLE <= v <= _CEA_MAX_PLAUSIBLE:
+                return v
+        except ValueError:
+            pass
+
+    return None
+
+
 def _parse_federal(soup: BeautifulSoup, source_url: str = "") -> dict:
     """
-    Extract federal income tax brackets, BPAF min/max, and K1 rate.
+    Extract federal income tax brackets, BPAF min/max, K1 rate, and CEA.
 
     Uses multiple strategies so minor changes to canada.ca HTML layout do
     not cause hard failures:
@@ -629,6 +703,7 @@ def _parse_federal(soup: BeautifulSoup, source_url: str = "") -> dict:
             "tax_brackets": [...],
             "bpaf": {"min": float, "max": float},
             "k1_rate": float,
+            "cea": float | None,   # None when automatic extraction fails
         }
     """
     # Strategy E — bulleted list (2026+ format)
@@ -637,7 +712,14 @@ def _parse_federal(soup: BeautifulSoup, source_url: str = "") -> dict:
         logger.info("Federal brackets located via Strategy E (bulleted list)")
         k1_rate = brackets_ul[0]["rate"]
         bpaf = _parse_bpaf(soup, k1_rate)
-        return {"tax_brackets": brackets_ul, "bpaf": bpaf, "k1_rate": k1_rate}
+        cea = _parse_cea(soup)
+        if cea is None:
+            logger.warning(
+                "Could not automatically extract Canada Employment Amount (CEA) from "
+                "T4127 HTML. The existing rule parameter value will be used unchanged. "
+                "Review rule_parameter_l10n_ca_fed_canada_employment_amount annually."
+            )
+        return {"tax_brackets": brackets_ul, "bpaf": bpaf, "k1_rate": k1_rate, "cea": cea}
 
     table, strategy, heading_text = _find_table_after_heading_or_fingerprint(
         soup,
@@ -668,7 +750,15 @@ def _parse_federal(soup: BeautifulSoup, source_url: str = "") -> dict:
     # --- BPAF ---
     bpaf = _parse_bpaf(soup, k1_rate)
 
-    return {"tax_brackets": brackets, "bpaf": bpaf, "k1_rate": k1_rate}
+    cea = _parse_cea(soup)
+    if cea is None:
+        logger.warning(
+            "Could not automatically extract Canada Employment Amount (CEA) from "
+            "T4127 HTML. The existing rule parameter value will be used unchanged. "
+            "Review rule_parameter_l10n_ca_fed_canada_employment_amount annually."
+        )
+
+    return {"tax_brackets": brackets, "bpaf": bpaf, "k1_rate": k1_rate, "cea": cea}
 
 
 def _parse_bpaf_from_formula_panel(soup: BeautifulSoup) -> dict | None:
@@ -1559,6 +1649,7 @@ def parse(session=None, debug_dir=None) -> dict:
         "bpaf": federal["bpaf"],
         "k1_rate": federal["k1_rate"],
         "tax_brackets": federal["tax_brackets"],
+        "cea": federal.get("cea"),
         "effective_date": effective_date,
         "source_urls": source_urls,
         "provinces": provinces,

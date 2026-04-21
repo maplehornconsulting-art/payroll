@@ -378,6 +378,17 @@ A future `l10n_ca_qc_hr_payroll` module may be developed for Quebec.
 - ✅ Optional PD7A CSV export (draft CRA format)
 - ✅ Idempotent post_init_hook creates CRA partner + RemittanceConfig per company
 
+### v1.7 (April 2026) — OHP rate fix & Salaried structure hardening
+- ✅ **Fixed Ontario Health Premium (OHP) rate in tiers 4–5** (`0.0025` → `0.25`): corrects a 100× error that understated OHP by ~$4/period for most Ontario employees. Annual OHP now stair-steps correctly: $0 → $300 → $450 → $600 → $900 per T4127 Ch 6 §6.7
+- ✅ OHP fix applied in both `hr_rule_parameters_data.xml` (live rule parameter) and the `OHP_CFG` fallback dict in `hr_salary_rule_data.xml`
+- ✅ **Salaried structure clone robustness**: clone/repair failures now log at ERROR level (was WARNING) so they are visible in standard server logs
+- ✅ Added post-clone final-state assertion: logs ERROR with missing rule codes if salaried structure has fewer rules than hourly after a clone pass
+- ✅ Added `_register_hook` server-startup self-check: compares Hourly vs Salaried rule counts on every Odoo restart and logs ERROR if they differ
+- ✅ `_post_init_hook` now also calls `_l10n_ca_clone_rules_to_salaried` directly (idempotent) to guarantee the salaried structure is populated on fresh installs
+- ✅ Added OHP spot-check regression tests for annual incomes $15k / $25k / $36k / $48k / $48.6k / $50k / $65k / $72k / $73.2k / $100k / $200k / $250k
+- ✅ Added ON $2,500 biweekly regression test: OHP ≈ $23.08/period, Provincial + OHP ≈ $131.48 (PDOC: $131.46, within ±$0.10)
+- ⚠️ **Action required on existing databases**: run `-u l10n_ca_hr_payroll_except_QC` to apply the corrected OHP rates and re-clone salaried rules if any were missing
+
 ### v1.4 (April 2026) — Accounting Integration
 - ✅ Added `hr_payroll_account` and `l10n_ca` to module dependencies — confirming a payslip now generates a balanced `account.move` in the Salary Journal
 - ✅ Created 17 Canadian payroll GL accounts (9 liability 2xxx, 8 expense 5xxx) on module install, one set per Canadian company (idempotent)

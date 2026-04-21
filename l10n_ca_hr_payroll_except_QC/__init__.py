@@ -42,6 +42,17 @@ def _post_init_hook(env):
         raise_if_not_found=False,
     )
 
+    # ------------------------------------------------------------------
+    # 1a. Ensure Salaried structure has all rules cloned from Hourly.
+    # The <function> tag in hr_salary_rule_data.xml also does this, but
+    # running it here too guarantees the clone is applied even on fresh
+    # installs where data file ordering may cause edge cases.
+    # ------------------------------------------------------------------
+    if own_hourly and own_salaried:
+        env['hr.payroll.structure']._l10n_ca_clone_rules_to_salaried(
+            own_hourly, own_salaried,
+        )
+
     structure_ids = []
     if ca_structure:
         structure_ids.append(ca_structure.id)

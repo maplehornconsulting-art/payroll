@@ -77,13 +77,15 @@ _ON_SURTAX = [(5818.0, 0.20), (7446.0, 0.36)]
 
 # Ontario Health Premium tiers: (upper_bound, base, rate, cap)
 # upper_bound=None → top tier (no upper limit, flat base)
+# CRA T4127 Ch 6 §6.7: rates in tiers 4-5 are 25% (0.25), not 0.25% (0.0025).
+# Caps ensure OHP maxes at $600 (A ≥ 48,600) and $900 (A ≥ 73,200).
 _OHP_TIERS = [
-    (20000,  0,   0.0,    0),
-    (36000,  0,   0.06,   300),
-    (48000,  300, 0.06,   150),
-    (72000,  450, 0.0025, 150),
-    (200000, 600, 0.0025, 300),
-    (None,   900, 0.0,    0),
+    (20000,  0,   0.0,  0),
+    (36000,  0,   0.06, 300),
+    (48000,  300, 0.06, 150),
+    (72000,  450, 0.25, 150),
+    (200000, 600, 0.25, 300),
+    (None,   900, 0.0,  0),
 ]
 
 
@@ -351,12 +353,15 @@ class TestOnPayslipOhpIntact:
 
         The OHP rule is intentionally independent of the CPP income split and
         should compute the same result as before the T4127 fix.
+
+        At annual = $52,000 (tier 48,001–72,000, rate=0.25, cap=150):
+          delta = 52,000 − 48,000 = 4,000
+          min(4,000 × 0.25, 150) = 150  → cap hit
+          OHP annual = 450 + 150 = 600 → per period = 600/26 ≈ 23.08
         """
         ohp = _ohp(self.GROSS, self.PERIODS)
-        # Annual gross = 52000; tier 48000-72000: base=450, +0.0025*(52000-48000)=+10.00
-        # ohp_annual = 460; per period = 460/26 ≈ 17.69
-        assert ohp == pytest.approx(17.69, abs=0.02), (
-            f"OHP expected ~17.69, got {ohp}"
+        assert ohp == pytest.approx(23.08, abs=0.02), (
+            f"OHP expected ~23.08, got {ohp}"
         )
 
     def test_net_pay_on(self):
@@ -513,4 +518,146 @@ class TestHighEarner4000BiweeklyNs:
         # at period 1 (CPP2 income deduction projects to $0 at first pay per T4127 §4.4).
         assert net == pytest.approx(2669.05, abs=15.0), (
             f"Net pay expected ~$2,669, got {net}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# OHP CRA T4127 spot-check table (annual amounts)
+# ---------------------------------------------------------------------------
+
+def _ohp_annual(annual_income: float) -> float:
+    """Return the annual OHP for the given annual income (Ontario only).
+
+    Mirrors _ohp() but returns the raw annual amount instead of the
+    per-period deduction, for easy comparison with the CRA T4127 table.
+    """
+    ohp = 0.0
+    prev = 0
+    for upto, base, rate, cap in _OHP_TIERS:
+        if upto is None:
+            ohp = base  # flat top tier
+            break
+        if annual_income <= upto:
+            delta = annual_income - prev
+            ohp = base + (min(delta * rate, cap) if cap else delta * rate)
+            break
+        prev = upto
+    return ohp
+
+
+class TestOhpTableSpotChecks:
+    """CRA T4127 Ch 6 §6.7 OHP table spot-checks (annual amounts).
+
+    Corrected rates: tiers 4–5 use 0.25 (25%), not 0.0025 (0.25%).
+    Caps (150 and 300) are hit very quickly — OHP effectively stair-steps:
+      $0 → $300 → $450 → $600 → $900.
+
+    Reference table from the problem statement:
+      A ≤ 20,000                           →   0
+      20,001 – 36,000  min(A-20k)×0.06,300 → 300
+      36,001 – 48,000  300+min(A-36k)×0.06 → 450
+      48,001 – 72,000  450+min(A-48k)×0.25 → 600  (cap at A=48,600)
+      72,001 – 200,000 600+min(A-72k)×0.25 → 900  (cap at A=73,200)
+      > 200,000        flat 900
+    """
+
+    def test_a_15000_is_zero(self):
+        """Annual ≤ $20,000 → OHP = $0."""
+        assert _ohp_annual(15_000) == pytest.approx(0, abs=0.01)
+
+    def test_a_20000_boundary_is_zero(self):
+        """Annual = $20,000 (exact boundary) → OHP = $0."""
+        assert _ohp_annual(20_000) == pytest.approx(0, abs=0.01)
+
+    def test_a_25000(self):
+        """Annual = $25,000 → OHP = min(5,000×0.06, 300) = 300."""
+        assert _ohp_annual(25_000) == pytest.approx(300, abs=0.01)
+
+    def test_a_36000_cap(self):
+        """Annual = $36,000 → OHP hits first cap = 300."""
+        assert _ohp_annual(36_000) == pytest.approx(300, abs=0.01)
+
+    def test_a_48000_boundary(self):
+        """Annual = $48,000 → OHP = 300 + min(12,000×0.06, 150) = 450."""
+        assert _ohp_annual(48_000) == pytest.approx(450, abs=0.01)
+
+    def test_a_48600_cap_hit(self):
+        """Annual = $48,600 → cap (rate=0.25) hit: 450+min(600×0.25,150)=600."""
+        assert _ohp_annual(48_600) == pytest.approx(600, abs=0.01)
+
+    def test_a_50000(self):
+        """Annual = $50,000 → OHP = 450+min(2,000×0.25,150)=600 (cap already hit)."""
+        assert _ohp_annual(50_000) == pytest.approx(600, abs=0.01)
+
+    def test_a_65000(self):
+        """Annual = $65,000 → OHP = 600 (cap remains)."""
+        assert _ohp_annual(65_000) == pytest.approx(600, abs=0.01)
+
+    def test_a_72000_boundary(self):
+        """Annual = $72,000 → OHP = 600 (still in tier 4, cap already hit)."""
+        assert _ohp_annual(72_000) == pytest.approx(600, abs=0.01)
+
+    def test_a_73200_cap_hit(self):
+        """Annual = $73,200 → tier 5 cap hit: 600+min(1,200×0.25,300)=900."""
+        assert _ohp_annual(73_200) == pytest.approx(900, abs=0.01)
+
+    def test_a_100000(self):
+        """Annual = $100,000 → OHP = 900 (tier 5 cap already hit)."""
+        assert _ohp_annual(100_000) == pytest.approx(900, abs=0.01)
+
+    def test_a_200000_boundary(self):
+        """Annual = $200,000 → OHP = 900 (tier 5 cap)."""
+        assert _ohp_annual(200_000) == pytest.approx(900, abs=0.01)
+
+    def test_a_250000_flat(self):
+        """Annual > $200,000 → OHP = 900 (flat top tier)."""
+        assert _ohp_annual(250_000) == pytest.approx(900, abs=0.01)
+
+
+# ---------------------------------------------------------------------------
+# Ontario $2,500 biweekly — acceptance-criterion regression test
+# ---------------------------------------------------------------------------
+
+class TestOn2500BiweeklyOhp:
+    """Ontario $2,500 biweekly (26 pp) OHP regression.
+
+    Acceptance criterion (problem statement):
+      Annual income = 65,000
+      OHP = 450 + min(17,000 × 0.25, 150) = 450 + 150 = 600/yr
+      Per period = 600 / 26 ≈ 23.08
+
+    Old (buggy) result with rate=0.0025:
+      OHP = 450 + min(17,000 × 0.0025, 150) = 450 + 42.50 = 492.50/yr
+      Per period = 492.50 / 26 ≈ 18.94
+    """
+
+    GROSS   = 2500.0
+    PERIODS = 26
+
+    def test_ohp_annual_at_65000(self):
+        """Annual = $65,000 → OHP annual = $600 (cap hit in tier 4)."""
+        annual = self.GROSS * self.PERIODS
+        assert annual == 65_000.0
+        assert _ohp_annual(annual) == pytest.approx(600, abs=0.01)
+
+    def test_ohp_per_period(self):
+        """OHP per period must be ≈ $23.08 (PDOC parity)."""
+        ohp = _ohp(self.GROSS, self.PERIODS)
+        assert ohp == pytest.approx(23.08, abs=0.02), (
+            f"ON $2,500 biweekly OHP expected ~$23.08, got {ohp}.  "
+            f"Bug: old rate=0.0025 gave $18.94."
+        )
+
+    def test_prov_plus_ohp_within_pdoc_tolerance(self):
+        """Provincial tax + OHP must be ≈ $131.48 (PDOC: $131.46, within ±$0.10).
+
+        Derivation: ON prov tax ≈ $108.40 + OHP $23.08 = $131.48/period.
+        PDOC bundles OHP into "Provincial tax deduction" → $131.46.
+        """
+        prov = _prov_tax(self.GROSS, self.PERIODS, _ON_BRACKETS, _ON_BPA, _ON_SURTAX)
+        ohp  = _ohp(self.GROSS, self.PERIODS)
+        total = prov + ohp
+        # 108.40 (PROV_TAX) + 23.08 (OHP) = 131.48; PDOC: 131.46
+        assert total == pytest.approx(131.48, abs=0.10), (
+            f"Provincial + OHP expected ~131.48 (PDOC: 131.46), got {total}"
         )

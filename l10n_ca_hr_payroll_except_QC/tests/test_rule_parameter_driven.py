@@ -138,12 +138,12 @@ def _ohp(gross: float, periods: int, ohp_config_raw=None) -> float:
 
     if not OHP_CFG or not OHP_CFG.get('tiers'):
         OHP_CFG = {'tiers': [
-            {'upto':  20000, 'base':   0, 'rate': 0,      'cap':   0},
-            {'upto':  36000, 'base':   0, 'rate': 0.06,   'cap': 300},
-            {'upto':  48000, 'base': 300, 'rate': 0.06,   'cap': 150},
-            {'upto':  72000, 'base': 450, 'rate': 0.0025, 'cap': 150},
-            {'upto': 200000, 'base': 600, 'rate': 0.0025, 'cap': 300},
-            {'upto':  None,  'base': 900, 'rate': 0,      'cap':   0},
+            {'upto':  20000, 'base':   0, 'rate': 0,    'cap':   0},
+            {'upto':  36000, 'base':   0, 'rate': 0.06, 'cap': 300},
+            {'upto':  48000, 'base': 300, 'rate': 0.06, 'cap': 150},
+            {'upto':  72000, 'base': 450, 'rate': 0.25, 'cap': 150},
+            {'upto': 200000, 'base': 600, 'rate': 0.25, 'cap': 300},
+            {'upto':  None,  'base': 900, 'rate': 0,    'cap':   0},
         ]}
 
     ohp = 0.0
@@ -376,10 +376,11 @@ class TestOhpFallback:
         assert result == expected
 
     def test_default_tiers_at_72000(self):
-        """Annual income = $72,000 → max of tier 4 → OHP = $510."""
+        """Annual income = $72,000 → cap of tier 4 hit → OHP annual = $600."""
         gross = 72000 / 52
         result = _ohp(gross, 52)
-        expected_annual = 450 + min((72000 - 48000) * 0.0025, 150)  # = 450 + 60 = 510
+        # rate=0.25: 450 + min((72000-48000)*0.25, 150) = 450 + 150 = 600 (cap hit)
+        expected_annual = 450 + min((72000 - 48000) * 0.25, 150)  # = 600
         expected_period = round(-(expected_annual / 52), 2)
         assert result == expected_period
 
@@ -394,12 +395,12 @@ class TestOhpFallback:
 
 _OHP_CONFIG_2026_VALUE = """{
   "tiers": [
-    {"upto":  20000, "base":   0, "rate": 0,      "cap":   0},
-    {"upto":  36000, "base":   0, "rate": 0.06,   "cap": 300},
-    {"upto":  48000, "base": 300, "rate": 0.06,   "cap": 150},
-    {"upto":  72000, "base": 450, "rate": 0.0025, "cap": 150},
-    {"upto": 200000, "base": 600, "rate": 0.0025, "cap": 300},
-    {"upto":  None,  "base": 900, "rate": 0,      "cap":   0}
+    {"upto":  20000, "base":   0, "rate": 0,    "cap":   0},
+    {"upto":  36000, "base":   0, "rate": 0.06, "cap": 300},
+    {"upto":  48000, "base": 300, "rate": 0.06, "cap": 150},
+    {"upto":  72000, "base": 450, "rate": 0.25, "cap": 150},
+    {"upto": 200000, "base": 600, "rate": 0.25, "cap": 300},
+    {"upto":  None,  "base": 900, "rate": 0,    "cap":   0}
   ]
 }"""
 

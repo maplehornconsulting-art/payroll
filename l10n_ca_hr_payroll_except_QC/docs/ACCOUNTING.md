@@ -9,18 +9,17 @@ when payslips are confirmed.
 ## Overview
 
 Confirming a payslip creates a single `account.move` in the **Salary Journal**
-(`SAL`, type `general`).  Every payslip line that has `account_debit` **and**
-`account_credit` configured on its salary rule produces two move lines.
-Lines without accounts (BASIC, NET) are informational and do not post.
+(`SAL`, type `general`).  Every payslip line that has at least one of
+`account_debit` or `account_credit` configured on its salary rule contributes
+to the journal entry.  Lines with neither account (BASIC) are informational.
 
 The net effect is:
 
 | GL account | Direction | Why |
 |---|---|---|
 | 5410 Salaries & Wages Expense | **Debit** | Gross pay recognized as expense |
-| 2380 Net Pay Clearing | Credit | Amount owed to employee |
-| 2380 Net Pay Clearing | **Debit** × N | Each deduction reduces clearing |
-| 2310–2380 Liability payables | Credit × N | Amounts owed to CRA / province / plan |
+| 2310–2370 Liability payables | **Credit** × N | Amounts owed to CRA / province / plan |
+| 2380 Net Pay Clearing | **Credit** | Net amount owed to employee |
 | 5420 CPP ER Expense | **Debit** | Employer CPP recognized as expense |
 | 5421 CPP2 ER Expense | **Debit** | Employer CPP2 recognized as expense |
 | 5430 EI ER Expense | **Debit** | Employer EI recognized as expense |
@@ -28,9 +27,12 @@ The net effect is:
 | 2321 CPP2 Payable | Credit | EE + ER CPP2 owed to CRA |
 | 2330 EI Payable | Credit | EE + ER EI owed to CRA |
 
-When the bank payment for net pay is recorded, the 2380 clearing account is
-debited to zero.  When the CRA remittance is sent, the 2310–2340 liability
-accounts are debited to zero.
+The GROSS rule contributes only `Dr 5410`.  Each employee deduction rule
+contributes only `Cr <liability>` (via Odoo's sign-based account swap — see
+[Gotcha section](#gotcha-negative-result--account_debitaccount_credit-semantics)
+below).  The NET rule contributes `Cr 2380` for the exact net pay amount.
+This leaves a single clean `Cr 2380` per payslip equal to what the employee
+receives, ready to be reconciled when the bank payment is recorded.
 
 ---
 
@@ -59,16 +61,16 @@ Net pay day:
 | Rule Code | Rule Name | Debit Account | Credit Account |
 |---|---|---|---|
 | BASIC | Basic Salary | *(informational)* | *(informational)* |
-| GROSS | Gross Salary | **5410** Salaries & Wages Expense | **2380** Net Pay Clearing |
-| RRSP | RRSP Deduction | **2380** Net Pay Clearing | **2360** RRSP Contributions Payable |
-| UNION_DUES | Union Dues | **2380** Net Pay Clearing | **2370** Union Dues Payable |
-| CPP_EE | CPP Employee | **2380** Net Pay Clearing | **2320** CPP Payable |
-| CPP2_EE | CPP2 Employee | **2380** Net Pay Clearing | **2321** CPP2 Payable |
-| EI_EE | EI Employee | **2380** Net Pay Clearing | **2330** EI Payable |
-| FED_TAX | Federal Income Tax | **2380** Net Pay Clearing | **2310** Fed Tax Payable |
-| PROV_TAX | Provincial Income Tax | **2380** Net Pay Clearing | **2340** Prov Tax Payable |
-| OHP | Ontario Health Premium | **2380** Net Pay Clearing | **2340** Prov Tax Payable |
-| NET | Net Salary | *(informational)* | *(informational)* |
+| GROSS | Gross Salary | **5410** Salaries & Wages Expense | *(none)* |
+| RRSP | RRSP Deduction | *(none)* | **2360** RRSP Contributions Payable |
+| UNION_DUES | Union Dues | *(none)* | **2370** Union Dues Payable |
+| CPP_EE | CPP Employee | *(none)* | **2320** CPP Payable |
+| CPP2_EE | CPP2 Employee | *(none)* | **2321** CPP2 Payable |
+| EI_EE | EI Employee | *(none)* | **2330** EI Payable |
+| FED_TAX | Federal Income Tax | *(none)* | **2310** Fed Tax Payable |
+| PROV_TAX | Provincial Income Tax | *(none)* | **2340** Prov Tax Payable |
+| OHP | Ontario Health Premium | *(none)* | **2340** Prov Tax Payable |
+| NET | Net Salary | *(none)* | **2380** Net Pay Clearing |
 | CPP_ER | CPP Employer | **5420** CPP ER Expense | **2320** CPP Payable |
 | CPP2_ER | CPP2 Employer | **5421** CPP2 ER Expense | **2321** CPP2 Payable |
 | EI_ER | EI Employer | **5430** EI ER Expense | **2330** EI Payable |
@@ -78,9 +80,11 @@ Net pay day:
 > PROV_TAX, OHP):** The table above shows the **effective** posting direction in
 > the journal entry.  Because these rules return a *negative* result, Odoo's
 > `hr_payroll_account` bridge swaps the `account_debit`/`account_credit` XML
-> fields at posting time.  Therefore the XML field assignment is the *opposite*
-> of what this table shows — the liability account is in `account_debit` and
-> 2380 is in `account_credit`.  See [Gotcha section](#gotcha-negative-result--account_debitaccount_credit-semantics) below.
+> fields at posting time.  Therefore **only `account_debit` is set** in the XML
+> (to the liability account) and **`account_credit` is left empty**.  After
+> Odoo's swap the liability account lands in the credit column.  See
+> [Gotcha section](#gotcha-negative-result--account_debitaccount_credit-semantics)
+> below.
 
 > **Note on OHP:** The Ontario Health Premium is an employee-side deduction
 > remitted to the Ontario Ministry of Finance alongside provincial income tax.
@@ -134,15 +138,15 @@ on module install or upgrade.
 Assume a Nova Scotia employee, bi-weekly pay, $1,203.13 gross period earnings.
 Approximate deductions (2026 rates):
 
-| Rule | Amount | Debit | Credit |
+| Rule | Amount | Effective Debit | Effective Credit |
 |---|---|---|---|
-| GROSS | +1,203.13 | 5410: 1,203.13 | 2380: 1,203.13 |
-| CPP_EE | −56.49 | 2380: 56.49 | 2320: 56.49 |
-| EI_EE | −19.61 | 2380: 19.61 | 2330: 19.61 |
-| FED_TAX | −180.00 | 2380: 180.00 | 2310: 180.00 |
-| PROV_TAX | −120.00 | 2380: 120.00 | 2340: 120.00 |
+| GROSS | +1,203.13 | 5410: 1,203.13 | *(none)* |
+| CPP_EE | −56.49 | *(none)* | 2320: 56.49 |
+| EI_EE | −19.61 | *(none)* | 2330: 19.61 |
+| FED_TAX | −180.00 | *(none)* | 2310: 180.00 |
+| PROV_TAX | −120.00 | *(none)* | 2340: 120.00 |
 | OHP | −0.00 | *(NS — OHP not applied)* | |
-| NET | +827.03 | *(informational)* | |
+| NET | +827.03 | *(none)* | 2380: 827.03 |
 | CPP_ER | +56.49 | 5420: 56.49 | 2320: 56.49 |
 | CPP2_ER | +0.00 | *(nil)* | |
 | EI_ER | +27.45 | 5430: 27.45 | 2330: 27.45 |
@@ -389,31 +393,39 @@ UNION_DUES) all use a negative formula result — for example:
 result = -min(pensionable * cpp_rate, period_max)   # always ≤ 0
 ```
 
-To achieve the desired journal entry `Dr 2380 Net Pay Clearing / Cr 2320 CPP Payable`,
-the accounts must be assigned **counter-intuitively**:
+To achieve the desired journal entry `Cr 2320 CPP Payable` with **no** debit
+line from this rule, the XML sets **only `account_debit`** (to the liability)
+and leaves `account_credit` empty:
 
 | XML field | Account set | Why |
 |---|---|---|
 | `account_debit` | **2320** CPP Payable (liability) | Odoo will *credit* this when result < 0 |
-| `account_credit` | **2380** Net Pay Clearing | Odoo will *debit* this when result < 0 |
+| `account_credit` | *(not set)* | No debit line is generated |
 
-The `<!-- Dr 2380 Net Pay Clearing / Cr 2320 CPP Payable -->` comment above each
-rule in `hr_salary_rule_data.xml` describes the **effective journal entry direction**
-(i.e., what you will see in the posted `account.move`), **not** the literal field
-assignment.
+The `<!-- Cr 2320 CPP Payable (negative result → Odoo swap → Cr account_debit) -->`
+comment above each deduction rule in `hr_salary_rule_data.xml` describes the
+**effective journal entry direction** (i.e., what you will see in the posted
+`account.move`).
 
 ### Worked example — CPP_EE, $5 000 bi-weekly, Ontario 2026
 
 1. `CPP_EE.result = -139.28`  (negative — employee CPP contribution)
 2. Odoo sees `total < 0` → uses `account_credit` for debit, `account_debit` for credit
-3. XML has: `account_debit = account_2320`, `account_credit = account_2380`
+3. XML has: `account_debit = account_2320`, `account_credit` is **not set**
 4. Posted move lines:
    ```
-   Dr  2380  Net Pay Clearing    139.28   ← from account_credit field
-   Cr  2320  CPP Payable         139.28   ← from account_debit field
+   Cr  2320  CPP Payable         139.28   ← from account_debit field (swapped)
+   (no debit line — account_credit is empty)
    ```
-5. **Net effect:** Net Pay Clearing is reduced (the cleared amount will be paid
-   to CRA rather than the employee), and CPP Payable grows by $139.28.
+5. **Net effect:** CPP Payable grows by $139.28.  The balancing debit on 5410
+   comes from the GROSS rule; the Cr 2380 comes from the NET rule.
+
+### NET rule provides the single Cr 2380
+
+The NET rule has a **positive** result (`gross − all deductions`).  It sets
+only `account_credit = account_2380`.  Odoo posts `Cr 2380` by the net amount
+with no debit.  This gives the Pay button a reconcilable credit account to
+match the bank payment against.
 
 ### Employer-side rules are NOT affected
 
@@ -422,19 +434,16 @@ Employer rules (CPP_ER, CPP2_ER, EI_ER) use a **positive** result
 the double negative gives a positive value).  Odoo does **not** swap accounts
 for positive results, so the field assignment for employer rules is
 straightforward: `account_debit = 5420` (expense), `account_credit = 2320`
-(payable).
+(payable).  These rules remain fully balanced internally (Dr expense / Cr
+payable) and are not affected by the GROSS/NET restructuring.
 
 ### Canonical check
 
-The integration test `tests/test_journal_posting_directions.py` verifies the
-effective posting direction end-to-end.  Run it inside a live Odoo instance
-with this module installed:
-
-```bash
-odoo-bin -c odoo.conf -d mydb --test-enable \
-  --test-tags /l10n_ca_hr_payroll_except_QC:l10n_ca_payroll_accounting
-```
+The integration test `tests/test_accounting_integration.py` verifies the
+XML field assignments without a live Odoo instance.
 
 If CPP Payable (2320) ever shows a **debit** entry from a payslip confirmation,
 the `account_debit`/`account_credit` fields on the deduction rule have been
-swapped back to the buggy state.
+swapped back to the buggy state.  If 5410 shows a **double debit** (once for
+GROSS and once for an "Adjustment Entry"), it means `account_credit` was
+accidentally set on the GROSS rule or on a deduction rule.

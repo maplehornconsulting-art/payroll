@@ -195,25 +195,33 @@ class TestSalaryRuleAccountMappings:
     """Verify that salary rules have the correct account_debit/credit refs."""
 
     # Expected mappings: rule XML ID → (debit_account_ref, credit_account_ref)
-    # None means the field should NOT be set (informational rule).
+    # None means the field should NOT be set.
     #
     # NOTE on employee deduction rules (negative result):
     # Odoo's hr_payroll_account swaps account_debit ↔ account_credit when
-    # salary_line.total < 0.  For deduction rules (result = -amount), the
-    # LIABILITY account is therefore stored in account_debit and the clearing
-    # account (2380) in account_credit.  The <!-- Dr / Cr --> comment above
-    # each XML rule describes the *resulting* journal entry direction (after
-    # the sign-based swap), not the literal field assignment.
+    # salary_line.total < 0.  Employee deduction rules store the LIABILITY
+    # account in account_debit and leave account_credit empty.  After Odoo's
+    # sign-based swap the liability account ends up in the CREDIT column of the
+    # posted move line — which is the correct accounting treatment.
+    #
+    # The NET rule (positive result) has only account_credit = 2380.  This
+    # satisfies Odoo's requirement that the NET credit account be reconcilable
+    # (account 2380 is created with reconcile=True) so the Pay button works.
+    #
+    # The GROSS rule has only account_debit = 5410 (no credit partner), so it
+    # contributes only a debit to Salaries Expense.  Together the rules produce
+    # one clean balanced journal entry with a single Cr 2380 equal to net pay.
     EXPECTED_MAPPINGS: dict[str, tuple[str | None, str | None]] = {
-        'salary_rule_ca_gross':    ('account_5410', 'account_2380'),
-        'salary_rule_ca_rrsp':     ('account_2360', 'account_2380'),
-        'salary_rule_ca_union':    ('account_2370', 'account_2380'),
-        'salary_rule_ca_cpp_ee':   ('account_2320', 'account_2380'),
-        'salary_rule_ca_cpp2_ee':  ('account_2321', 'account_2380'),
-        'salary_rule_ca_ei_ee':    ('account_2330', 'account_2380'),
-        'salary_rule_ca_fed_tax':  ('account_2310', 'account_2380'),
-        'salary_rule_ca_prov_tax': ('account_2340', 'account_2380'),
-        'salary_rule_ca_ohp':      ('account_2340', 'account_2380'),
+        'salary_rule_ca_gross':    ('account_5410', None),
+        'salary_rule_ca_rrsp':     ('account_2360', None),
+        'salary_rule_ca_union':    ('account_2370', None),
+        'salary_rule_ca_cpp_ee':   ('account_2320', None),
+        'salary_rule_ca_cpp2_ee':  ('account_2321', None),
+        'salary_rule_ca_ei_ee':    ('account_2330', None),
+        'salary_rule_ca_fed_tax':  ('account_2310', None),
+        'salary_rule_ca_prov_tax': ('account_2340', None),
+        'salary_rule_ca_ohp':      ('account_2340', None),
+        'salary_rule_ca_net':      (None,           'account_2380'),
         'salary_rule_ca_cpp_er':   ('account_5420', 'account_2320'),
         'salary_rule_ca_cpp2_er':  ('account_5421', 'account_2321'),
         'salary_rule_ca_ei_er':    ('account_5430', 'account_2330'),
@@ -222,7 +230,6 @@ class TestSalaryRuleAccountMappings:
     # Rules that are informational and must NOT have account fields set
     INFORMATIONAL_RULES = {
         'salary_rule_ca_basic',
-        'salary_rule_ca_net',
     }
 
     def setup_method(self):
@@ -264,12 +271,13 @@ class TestSalaryRuleAccountMappings:
     def test_gross_debits_salaries_expense(self):
         assert self.rules.get('salary_rule_ca_gross', {}).get('account_debit') == 'account_5410'
 
-    def test_gross_credits_net_pay_clearing(self):
-        assert self.rules.get('salary_rule_ca_gross', {}).get('account_credit') == 'account_2380'
+    def test_gross_has_no_credit_account(self):
+        """GROSS only provides Dr 5410; the Cr 2380 comes from the NET rule."""
+        assert self.rules.get('salary_rule_ca_gross', {}).get('account_credit') is None
 
     def test_fed_tax_liability_in_debit_field(self):
         # For deduction rules (result < 0), Odoo swaps debit/credit at posting time.
-        # The liability account therefore lives in account_debit; 2380 in account_credit.
+        # The liability account lives in account_debit; account_credit is not set.
         assert self.rules.get('salary_rule_ca_fed_tax', {}).get('account_debit') == 'account_2310'
 
     def test_cpp_ee_liability_in_debit_field(self):
@@ -297,6 +305,38 @@ class TestSalaryRuleAccountMappings:
         assert ohp.get('account_debit') != 'account_2350', (
             "OHP should use 2340 (provincial tax), not 2350 (employer EHT)"
         )
+
+    def test_net_rule_credits_net_pay_clearing(self):
+        """NET rule must credit 2380 so the Pay button can reconcile."""
+        assert self.rules.get('salary_rule_ca_net', {}).get('account_credit') == 'account_2380', (
+            "NET rule must have account_credit=account_2380 (Net Pay Clearing) "
+            "so that the Pay button can reconcile it."
+        )
+
+    def test_net_rule_has_no_debit_account(self):
+        """NET rule only contributes Cr 2380; no debit side."""
+        assert self.rules.get('salary_rule_ca_net', {}).get('account_debit') is None
+
+    def test_deduction_rules_have_no_credit_account(self):
+        """Employee deduction rules must not have account_credit set.
+
+        With Odoo's swap (total < 0), only account_debit is needed — it ends
+        up in the credit column of the posted move line.  Setting account_credit
+        as well (e.g. to 2380) would generate a spurious Dr 2380 line that
+        double-books the clearing account.
+        """
+        deduction_rules = [
+            'salary_rule_ca_rrsp', 'salary_rule_ca_union',
+            'salary_rule_ca_cpp_ee', 'salary_rule_ca_cpp2_ee',
+            'salary_rule_ca_ei_ee', 'salary_rule_ca_fed_tax',
+            'salary_rule_ca_prov_tax', 'salary_rule_ca_ohp',
+        ]
+        for rule_id in deduction_rules:
+            credit = self.rules.get(rule_id, {}).get('account_credit')
+            assert credit is None, (
+                f"Deduction rule {rule_id} must NOT have account_credit set "
+                f"(got '{credit}'). Setting it causes double-booking on 2380."
+            )
 
 
 # ===========================================================================
@@ -583,20 +623,30 @@ class TestOhpAccountMapping:
     """Verify the OHP account mapping is correct for ON vs non-ON employees."""
 
     def test_ohp_uses_provincial_tax_payable_not_eht(self):
-        """OHP (employee deduction) must credit 2340, not 2350 (employer EHT)."""
-        root = _parse_xml("hr_salary_rule_data.xml")
-        rules = _record_ids(root, "hr.salary.rule")
-        ohp_credit = rules.get('salary_rule_ca_ohp', {}).get('account_credit', '')
-        assert ohp_credit == 'account_2340', (
-            f"OHP must credit 2340 (Provincial Tax Payable), got '{ohp_credit}'"
-        )
-
-    def test_ohp_debits_net_pay_clearing(self):
+        """OHP (employee deduction) must use 2340, not 2350 (employer EHT)."""
         root = _parse_xml("hr_salary_rule_data.xml")
         rules = _record_ids(root, "hr.salary.rule")
         ohp_debit = rules.get('salary_rule_ca_ohp', {}).get('account_debit', '')
-        assert ohp_debit == 'account_2380', (
-            f"OHP must debit 2380 (Net Pay Clearing), got '{ohp_debit}'"
+        assert ohp_debit == 'account_2340', (
+            f"OHP must use account_debit=2340 (Provincial Tax Payable), got '{ohp_debit}'"
+        )
+        assert ohp_debit != 'account_2350', (
+            "OHP must NOT use account_debit=2350 (Employer EHT Payable) — "
+            "OHP is an employee deduction, not employer EHT"
+        )
+
+    def test_ohp_has_no_credit_account(self):
+        """OHP is a deduction rule: only account_debit is set (no account_credit).
+
+        With Odoo's swap (negative result), account_debit (2340) ends up in
+        the credit column of the posted move line.  An account_credit would
+        create an unwanted second move line.
+        """
+        root = _parse_xml("hr_salary_rule_data.xml")
+        rules = _record_ids(root, "hr.salary.rule")
+        ohp_credit = rules.get('salary_rule_ca_ohp', {}).get('account_credit')
+        assert ohp_credit is None, (
+            f"OHP must NOT have account_credit set; got '{ohp_credit}'"
         )
 
     def test_eht_accounts_created_for_future_employer_rule(self):
@@ -638,8 +688,8 @@ class TestManifestDependencies:
 
     def test_version_bumped(self):
         version = self.manifest.get('version', '')
-        assert version == '19.0.1.7', (
-            f"Version should be 19.0.1.7, got '{version}'"
+        assert version == '19.0.2.1', (
+            f"Version should be 19.0.2.1, got '{version}'"
         )
 
     def test_account_account_data_in_data_list(self):

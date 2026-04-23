@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Part of MHC. See LICENSE file for full copyright and licensing details. -->
+<odoo>
+
+    <!-- T4 Slip Form View -->
+    <record id="view_hr_payroll_t4_form" model="ir.ui.view">
+        <field name="name">hr.payroll.t4.form</field>
+        <field name="model">hr.payroll.t4</field>
+        <field name="arch" type="xml">
+            <form string="T4 Slip">
+                <header>
+                    <button name="action_compute" string="Compute" type="object"
+                            invisible="state != 'draft'" class="oe_highlight"/>
+                    <button name="action_confirm" string="Confirm" type="object"
+                            invisible="state != 'draft'" class="oe_highlight"/>
+                    <button name="action_send" string="Mark as Sent" type="object"
+                            invisible="state != 'confirmed'"/>
+                    <button name="action_draft" string="Reset to Draft" type="object"
+                            invisible="state not in ('confirmed', 'sent')"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,confirmed,sent"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Employee Information">
+                            <field name="year"/>
+                            <field name="employee_id"/>
+                            <field name="employee_sin"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                            <field name="summary_id"/>
+                            <field name="province_of_employment"/>
+                            <field name="currency_id" invisible="1"/>
+                        </group>
+                        <group string="Employee Address">
+                            <field name="employee_address" nolabel="1"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Income">
+                            <field name="box_14_employment_income"/>
+                            <field name="box_22_tax"/>
+                        </group>
+                        <group string="CPP / EI">
+                            <field name="box_16_cpp"/>
+                            <field name="box_16a_cpp2"/>
+                            <field name="box_18_ei"/>
+                            <field name="box_24_ei_insurable"/>
+                            <field name="box_26_pensionable"/>
+                            <field name="box_52_cpp2"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Deductions">
+                            <field name="box_20_rpp"/>
+                            <field name="box_44_union"/>
+                            <field name="box_46_donations"/>
+                        </group>
+                        <group string="Quebec (Not Applicable)">
+                            <field name="box_17_qpp"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- T4 Slip List View -->
+    <record id="view_hr_payroll_t4_list" model="ir.ui.view">
+        <field name="name">hr.payroll.t4.list</field>
+        <field name="model">hr.payroll.t4</field>
+        <field name="arch" type="xml">
+            <list string="T4 Slips">
+                <field name="name"/>
+                <field name="year"/>
+                <field name="employee_id"/>
+                <field name="employee_sin"/>
+                <field name="box_14_employment_income"/>
+                <field name="box_16_cpp"/>
+                <field name="box_18_ei"/>
+                <field name="box_22_tax"/>
+                <field name="state"/>
+                <field name="currency_id" invisible="1"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- T4 Summary Form View -->
+    <record id="view_hr_payroll_t4_summary_form" model="ir.ui.view">
+        <field name="name">hr.payroll.t4.summary.form</field>
+        <field name="model">hr.payroll.t4.summary</field>
+        <field name="arch" type="xml">
+            <form string="T4 Summary">
+                <header>
+                    <button name="action_generate_t4s" string="Generate T4 Slips" type="object"
+                            invisible="state != 'draft'" class="oe_highlight"/>
+                    <button name="action_export_xml" string="Export XML" type="object"
+                            invisible="state not in ('draft', 'confirmed')" class="oe_highlight"/>
+                    <button name="action_confirm" string="Confirm" type="object"
+                            invisible="state != 'draft'"/>
+                    <button name="action_draft" string="Reset to Draft" type="object"
+                            invisible="state != 'confirmed'"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,confirmed"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Summary Information">
+                            <field name="year"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                            <field name="currency_id" invisible="1"/>
+                        </group>
+                        <group string="Transmitter Information">
+                            <field name="transmitter_bn"/>
+                            <field name="transmitter_name"/>
+                            <field name="contact_name"/>
+                            <field name="contact_phone"/>
+                            <field name="contact_email"/>
+                        </group>
+                    </group>
+                    <group string="Totals">
+                        <group>
+                            <field name="total_employees"/>
+                            <field name="total_employment_income"/>
+                            <field name="total_cpp"/>
+                            <field name="total_cpp2"/>
+                            <field name="total_ei"/>
+                        </group>
+                        <group>
+                            <field name="total_tax"/>
+                            <field name="total_rpp"/>
+                            <field name="total_union"/>
+                            <field name="employer_cpp"/>
+                            <field name="employer_cpp2"/>
+                            <field name="employer_ei"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="T4 Slips">
+                            <field name="t4_ids">
+                                <list>
+                                    <field name="employee_id"/>
+                                    <field name="employee_sin"/>
+                                    <field name="box_14_employment_income"/>
+                                    <field name="box_16_cpp"/>
+                                    <field name="box_18_ei"/>
+                                    <field name="box_22_tax"/>
+                                    <field name="state"/>
+                                    <field name="currency_id" invisible="1"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- T4 Summary List View -->
+    <record id="view_hr_payroll_t4_summary_list" model="ir.ui.view">
+        <field name="name">hr.payroll.t4.summary.list</field>
+        <field name="model">hr.payroll.t4.summary</field>
+        <field name="arch" type="xml">
+            <list string="T4 Summaries">
+                <field name="name"/>
+                <field name="year"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+                <field name="total_employees"/>
+                <field name="total_employment_income"/>
+                <field name="total_tax"/>
+                <field name="state"/>
+                <field name="currency_id" invisible="1"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- T4 Wizard Form View -->
+    <record id="view_hr_payroll_t4_wizard_form" model="ir.ui.view">
+        <field name="name">hr.payroll.t4.wizard.form</field>
+        <field name="model">hr.payroll.t4.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Generate T4 Slips">
+                <group>
+                    <field name="year"/>
+                    <field name="company_id" groups="base.group_multi_company"/>
+                </group>
+                <footer>
+                    <button name="action_generate" string="Generate T4 Slips" type="object"
+                            class="oe_highlight"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Actions -->
+    <record id="action_hr_payroll_t4" model="ir.actions.act_window">
+        <field name="name">T4 Statements</field>
+        <field name="res_model">hr.payroll.t4</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_hr_payroll_t4_summary" model="ir.actions.act_window">
+        <field name="name">T4 Summary</field>
+        <field name="res_model">hr.payroll.t4.summary</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_hr_payroll_t4_wizard" model="ir.actions.act_window">
+        <field name="name">Generate T4 Slips</field>
+        <field name="res_model">hr.payroll.t4.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Menu Items -->
+    <menuitem id="menu_hr_payroll_year_end"
+              name="Year-End Reporting"
+              parent="hr_work_entry_enterprise.menu_hr_payroll_root"
+              sequence="90"/>
+
+    <menuitem id="menu_hr_payroll_t4"
+              name="T4 Statements"
+              parent="menu_hr_payroll_year_end"
+              action="action_hr_payroll_t4"
+              sequence="10"/>
+
+    <menuitem id="menu_hr_payroll_t4_summary"
+              name="T4 Summary"
+              parent="menu_hr_payroll_year_end"
+              action="action_hr_payroll_t4_summary"
+              sequence="15"/>
+
+    <menuitem id="menu_hr_payroll_generate_t4"
+              name="Generate T4 Slips"
+              parent="menu_hr_payroll_year_end"
+              action="action_hr_payroll_t4_wizard"
+              sequence="20"/>
+
+</odoo>

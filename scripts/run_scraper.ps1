@@ -1,4 +1,4 @@
-﻿﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Runs the CRA payroll feed scraper locally and pushes updated JSON to GitHub.

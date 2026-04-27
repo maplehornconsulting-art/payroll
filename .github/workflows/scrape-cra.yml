@@ -1,85 +1,30 @@
-name: Scrape CRA & Publish Feed
+name: Publish CRA Feed to Pages
 
 on:
-  # schedule disabled — scraper runs locally on Windows via scripts/run_scraper.ps1
-  # to avoid canada.ca bot-protection blocking datacenter IPs (GitHub-hosted runners).
-  # Re-enable by uncommenting the two lines below:
-  # schedule:
-  #   - cron: "0 6 * * *"   # daily at 06:00 UTC
-  workflow_dispatch:        # manual trigger
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - "cra_feed/**"
+      - "cra_feed/output/**"
 
 concurrency:
-  group: cra-feed
+  group: cra-feed-pages
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
 jobs:
-  scrape-and-publish:
+  deploy:
     runs-on: ubuntu-latest
-
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: pip install -r cra_feed/requirements.txt
-
-      - name: Run tests
-        run: pytest cra_feed/tests/ -v
-
-      - name: Run scraper
-        run: python -m cra_feed.scraper --debug-html
-
-      - name: Upload debug HTML on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: t4127-debug-html
-          path: dist/_debug/
-          if-no-files-found: warn
-
-      - name: Validate generated feed
-        run: python -m cra_feed.validate cra_feed/output/v1/ca/latest.json
-
-      - name: Import GPG key and sign JSON files
-        if: ${{ env.CRA_FEED_GPG_KEY != '' }}
-        env:
-          CRA_FEED_GPG_KEY: ${{ secrets.CRA_FEED_GPG_KEY }}
-        run: |
-          echo "$CRA_FEED_GPG_KEY" | gpg --batch --import
-          for f in cra_feed/output/v1/ca/*.json; do
-            gpg --batch --yes --detach-sign --armor "$f"
-            mv "${f}.asc" "${f}.sig"
-          done
-
-      - name: Commit changes if JSON changed
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add cra_feed/output/
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "chore: update CRA feed [skip ci]"
-            git push
-          fi
+      - uses: actions/checkout@v4
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

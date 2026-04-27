@@ -139,8 +139,7 @@ try {
         $env:GIT_COMMITTER_EMAIL = "local-scraper@$env:COMPUTERNAME"
         try {
             # Path-scoped commit — never picks up unrelated staged files.
-            git commit -m 'chore: update CRA feed [local run] [skip ci]' -- cra_feed/output/
-            git push origin main
+            git commit -m 'chore: update CRA feed [local run]' -- cra_feed/output/
         } finally {
             $env:GIT_AUTHOR_NAME     = $null
             $env:GIT_AUTHOR_EMAIL    = $null

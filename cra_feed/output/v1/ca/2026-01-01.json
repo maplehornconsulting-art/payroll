@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "jurisdiction": "CA",
   "effective_date": "2026-01-01",
-  "published_at": "2026-04-27T02:25:24Z",
+  "published_at": "2026-04-27T02:30:48Z",
   "source_urls": [
     "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas.html",
     "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas/t4127-jan.html",
@@ -384,5 +384,5 @@
       "k1p": 1052.93
     }
   },
-  "checksum_sha256": "bf643557cbe99edc92a730552544cfe2d8c9be1b5ef91b349a96541c03d62e89"
+  "checksum_sha256": "78025da23f8f34004d4c8e1b0dae5935a153344de5e0c192ff620d4f0aeb02a9"
 }

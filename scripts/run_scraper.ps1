@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+﻿﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Runs the CRA payroll feed scraper locally and pushes updated JSON to GitHub.
@@ -9,6 +9,13 @@
 
     Environment variable REPO_DIR can override the default repo location.
     Logs are written to <repo>\cra_feed\_logs\run-<UTC-timestamp>.log.
+
+    Self-healing behaviour:
+      - Aborts any leftover rebase/merge state from a prior interrupted run.
+      - Hard-resets local main to origin/main if fast-forward fails
+        (this machine is never the authoritative source for main).
+      - Wipes pytest tmp dirs in BOTH locations to avoid Defender/OneDrive
+        file-lock errors (PermissionError [WinError 5]).
 #>
 
 $ErrorActionPreference = "Stop"
@@ -34,13 +41,44 @@ try {
     Write-Host "=== CRA Feed Scraper -- start $(Get-Date -Format o) ==="
 
     # -----------------------------------------------------------------------
-    # Git: sync to latest main
+    # Git: sync to latest main (self-healing)
     # -----------------------------------------------------------------------
     Set-Location $RepoDir
 
+    # Defensive: clean up any half-finished rebase/merge from a prior aborted
+    # run. Without this, every subsequent run fails until a human intervenes.
+    if (Test-Path ".git\rebase-merge") {
+        Write-Warning "Found leftover rebase-merge state; aborting it."
+        git rebase --abort 2>&1 | Out-Null
+    }
+    if (Test-Path ".git\rebase-apply") {
+        Write-Warning "Found leftover rebase-apply state; aborting it."
+        git rebase --abort 2>&1 | Out-Null
+    }
+    if (Test-Path ".git\MERGE_HEAD") {
+        Write-Warning "Found leftover merge state; aborting it."
+        git merge --abort 2>&1 | Out-Null
+    }
+    if (Test-Path ".git\CHERRY_PICK_HEAD") {
+        Write-Warning "Found leftover cherry-pick state; aborting it."
+        git cherry-pick --abort 2>&1 | Out-Null
+    }
+
     git fetch origin main
+    if ($LASTEXITCODE -ne 0) { throw "git fetch failed with exit code $LASTEXITCODE" }
+
     git checkout main
+    if ($LASTEXITCODE -ne 0) { throw "git checkout main failed with exit code $LASTEXITCODE" }
+
+    # Try fast-forward first. If local main has diverged (e.g. a previous
+    # local commit was rebased/squashed upstream), hard-reset to origin/main.
+    # This box is never authoritative for main — origin always wins.
     git pull --ff-only origin main
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Fast-forward pull failed; hard-resetting local main to origin/main."
+        git reset --hard origin/main
+        if ($LASTEXITCODE -ne 0) { throw "git reset --hard origin/main failed with exit code $LASTEXITCODE" }
+    }
 
     # -----------------------------------------------------------------------
     # Python virtual environment
@@ -61,8 +99,11 @@ try {
     # Tests
     # -----------------------------------------------------------------------
     # Move pytest's tmp root inside the repo so Windows Defender / OneDrive don't
-    # lock files we need to delete. Also wipe any stale temp dirs from prior runs.
+    # lock files we need to delete. Wipe stale tmp dirs from prior runs in BOTH
+    # the default LOCALAPPDATA location AND the in-repo location.
     Remove-Item "$env:LOCALAPPDATA\Temp\pytest-of-$env:USERNAME" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $RepoDir "cra_feed\_pytest_tmp")     -Recurse -Force -ErrorAction SilentlyContinue
+
     $env:PYTEST_DEBUG_TEMPROOT = Join-Path $RepoDir "cra_feed\_pytest_tmp"
     New-Item -ItemType Directory -Force -Path $env:PYTEST_DEBUG_TEMPROOT | Out-Null
     pytest cra_feed\tests\ -v

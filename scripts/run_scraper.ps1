@@ -98,15 +98,20 @@ try {
     # -----------------------------------------------------------------------
     # Tests
     # -----------------------------------------------------------------------
-    # Move pytest's tmp root inside the repo so Windows Defender / OneDrive don't
-    # lock files we need to delete. Wipe stale tmp dirs from prior runs in BOTH
-    # the default LOCALAPPDATA location AND the in-repo location.
-    Remove-Item "$env:LOCALAPPDATA\Temp\pytest-of-$env:USERNAME" -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item (Join-Path $RepoDir "cra_feed\_pytest_tmp")     -Recurse -Force -ErrorAction SilentlyContinue
+    # Use a UNIQUE per-run tmp dir so Windows Defender / OneDrive holding
+    # handles on prior-run files can never block the next run. Best-effort
+    # delete of older tmp dirs (>1 day old) to prevent unbounded growth.
+    $PytestTmpRoot = Join-Path $RepoDir "cra_feed\_pytest_tmp\$Timestamp"
+    New-Item -ItemType Directory -Force -Path $PytestTmpRoot | Out-Null
+    $env:PYTEST_DEBUG_TEMPROOT = $PytestTmpRoot
 
-    $env:PYTEST_DEBUG_TEMPROOT = Join-Path $RepoDir "cra_feed\_pytest_tmp"
-    New-Item -ItemType Directory -Force -Path $env:PYTEST_DEBUG_TEMPROOT | Out-Null
-    pytest cra_feed\tests\ -v
+    # Best-effort cleanup of old per-run dirs (silently skip any Defender holds)
+    Get-ChildItem (Join-Path $RepoDir "cra_feed\_pytest_tmp") -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) } |
+        ForEach-Object { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+
+    # Disable .pytest_cache writes (Defender also holds locks here under task scheduler)
+    pytest cra_feed\tests\ -v -p no:cacheprovider
     if ($LASTEXITCODE -ne 0) { throw "Step failed with exit code $LASTEXITCODE" }
 
     # -----------------------------------------------------------------------

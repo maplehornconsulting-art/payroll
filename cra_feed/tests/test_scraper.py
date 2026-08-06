@@ -1576,3 +1576,163 @@ class TestProvinceDataSurtaxRoundTrip:
         del feed["provinces"]["ON"]["surtax"]
         with pytest.raises(jsonschema.ValidationError):
             validate_feed(feed)
+
+
+# ---------------------------------------------------------------------------
+# July delta edition (2026+ "refer to the previous edition" format)
+# ---------------------------------------------------------------------------
+
+class TestJulyDeltaEdition:
+    """Tests for parsing CRA's July delta editions and merging with the
+    referenced prior (January) edition."""
+
+    INDEX_URL = (
+        "https://www.canada.ca/en/revenue-agency/services/forms-publications/"
+        "payroll/t4127-payroll-deductions-formulas.html"
+    )
+    BASE = "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/"
+    JUL_EDITION = BASE + "t4127-payroll-deductions-formulas/t4127-jul.html"
+    JUL_DOC = (
+        BASE + "t4127-payroll-deductions-formulas/t4127-jul/"
+        "t4127-jul-payroll-deductions-formulas.html"
+    )
+    JAN_EDITION = BASE + "t4127-payroll-deductions-formulas/t4127-jan.html"
+    JAN_DOC = (
+        BASE + "t4127-payroll-deductions-formulas/t4127-jan/"
+        "t4127-jan-payroll-deductions-formulas-computer-programs.html"
+    )
+
+    def _jul_soup(self):
+        from bs4 import BeautifulSoup
+        return BeautifulSoup(_read_fixture("t4127_jul_2026_delta_doc.html"), "lxml")
+
+    def test_federal_from_table_81_not_bc_list(self):
+        """The federal brackets must come from Table 8.1 — NOT from British
+        Columbia's prorated bulleted list, which uses identical wording."""
+        from cra_feed.parsers.t4127 import _parse_federal
+        result = _parse_federal(self._jul_soup(), require_bpaf=False)
+        rates = [b["rate"] for b in result["tax_brackets"]]
+        assert rates == pytest.approx([0.14, 0.205, 0.26, 0.29, 0.33]), \
+            f"Expected federal rates, got: {rates}"
+        assert result["k1_rate"] == pytest.approx(0.14), \
+            f"k1_rate must be federal 14%, not BC 6.14%: {result['k1_rate']}"
+        assert result["bpaf"] is None, "July delta doc has no BPAF section"
+
+    def test_strategy_e_rejects_provincial_lists(self):
+        """With Table 8.1 removed, the bulleted-list strategy must NOT fall
+        back to BC's or PEI's provincial bracket lists."""
+        from cra_feed.parsers.t4127 import _parse_brackets_from_ul
+        soup = self._jul_soup()
+        for table in soup.find_all("table"):
+            table.decompose()
+        assert _parse_brackets_from_ul(soup) == [], \
+            "Provincial bullet lists must never be accepted as federal brackets"
+
+    def test_require_bpaf_true_still_raises(self):
+        from cra_feed.parsers.t4127 import _parse_federal
+        with pytest.raises(ValueError):
+            _parse_federal(self._jul_soup(), require_bpaf=True)
+
+    def test_provinces_partial_parse(self):
+        """require_bpa=False: changed provinces get prorated BPAs from the
+        reproduced claim-code tables; unchanged ones get bpa=None."""
+        from cra_feed.parsers.t4127 import _parse_provinces
+        provinces = _parse_provinces(self._jul_soup(), require_bpa=False)
+        assert set(provinces) == {
+            "AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "SK", "YT"
+        }
+        assert provinces["BC"]["bpa"] == pytest.approx(13216.00)
+        assert provinces["BC"]["k1p"] == pytest.approx(811.46)
+        assert provinces["NL"]["bpa"] == pytest.approx(15000.00)
+        assert provinces["ON"]["bpa"] is None
+        assert provinces["ON"]["surtax"] == [[5818.0, 0.2], [7446.0, 0.36]]
+        # PEI's new prorated top bracket
+        assert provinces["PE"]["tax_brackets"][-1]["rate"] == pytest.approx(0.21)
+        assert provinces["BC"]["tax_brackets"][0]["rate"] == pytest.approx(0.0614)
+
+    def test_provinces_require_bpa_raises(self):
+        from cra_feed.parsers.t4127 import _parse_provinces
+        with pytest.raises(ValueError):
+            _parse_provinces(self._jul_soup(), require_bpa=True)
+
+    def test_find_previous_edition_url(self):
+        from cra_feed.parsers.t4127 import (
+            _find_edition_url,
+            _find_previous_edition_url,
+        )
+        index_html = _read_fixture("t4127_index_jul_current.html")
+        chosen = _find_edition_url(index_html)
+        assert "jul" in chosen.lower(), f"123rd (JUL) must win: {chosen}"
+        prev = _find_previous_edition_url(index_html, chosen)
+        assert prev is not None and "jan" in prev.lower(), \
+            f"Prior edition must be the 122nd (JAN): {prev}"
+
+    def test_full_parse_merges_prior_edition(self):
+        """End-to-end: parse() on a July delta edition fills federal BPAF and
+        unchanged provinces' BPAs from the referenced January edition."""
+        from cra_feed.parsers import t4127
+
+        pages = {
+            self.INDEX_URL: _read_fixture("t4127_index_jul_current.html"),
+            self.JUL_EDITION: _read_fixture("t4127_jul_2026_edition.html"),
+            self.JUL_DOC: _read_fixture("t4127_jul_2026_delta_doc.html"),
+            self.JAN_EDITION: _read_fixture("t4127_jan_2026_edition.html"),
+            self.JAN_DOC: _read_fixture("t4127_jan_2026_companion_doc.html"),
+        }
+
+        def fake_fetch(session, url):
+            assert url in pages, f"Unexpected fetch: {url}"
+            return pages[url]
+
+        with patch.object(t4127, "_fetch", side_effect=fake_fetch):
+            result = t4127.parse(session=MagicMock())
+
+        assert result["effective_date"] == "2026-07-01"
+        # Federal: brackets from the July Table 8.1, BPAF from the Jan edition
+        assert [b["rate"] for b in result["tax_brackets"]] == pytest.approx(
+            [0.14, 0.205, 0.26, 0.29, 0.33]
+        )
+        assert result["bpaf"] == {"min": 14829.0, "max": 16452.0}
+        provinces = result["provinces"]
+        # Changed provinces keep their July prorated values
+        assert provinces["BC"]["bpa"] == pytest.approx(13216.00)
+        assert provinces["BC"]["k1p"] == pytest.approx(811.46)
+        assert provinces["BC"]["tax_brackets"][0]["rate"] == pytest.approx(0.0614)
+        assert provinces["NL"]["bpa"] == pytest.approx(15000.00)
+        assert provinces["PE"]["tax_brackets"][-1]["rate"] == pytest.approx(0.21)
+        # Unchanged provinces filled from the January edition
+        assert provinces["ON"]["bpa"] == pytest.approx(12989.0)
+        assert provinces["ON"]["k1p"] == pytest.approx(655.94)
+        assert all(p["bpa"] is not None for p in provinces.values()), \
+            "Every province must have a BPA after the merge"
+        # July surtax survives the merge
+        assert provinces["ON"]["surtax"] == [[5818.0, 0.2], [7446.0, 0.36]]
+        # Prior-edition pages recorded as sources
+        assert self.JAN_DOC in result["source_urls"]
+        assert self.JUL_DOC in result["source_urls"]
+
+    def test_full_parse_fails_without_prior_edition(self):
+        """A delta edition with no prior-edition link on the index must abort
+        rather than publish incomplete data."""
+        from cra_feed.parsers import t4127
+
+        index_only_jul = (
+            "<html><body><ul><li>"
+            '<a href="/en/revenue-agency/services/forms-publications/payroll/'
+            't4127-payroll-deductions-formulas/t4127-jul.html">'
+            "T4127-JUL Payroll Deductions Formulas - 123rd Edition (HTML)</a>"
+            "</li></ul></body></html>"
+        )
+        pages = {
+            self.INDEX_URL: index_only_jul,
+            self.JUL_EDITION: _read_fixture("t4127_jul_2026_edition.html"),
+            self.JUL_DOC: _read_fixture("t4127_jul_2026_delta_doc.html"),
+        }
+
+        def fake_fetch(session, url):
+            assert url in pages, f"Unexpected fetch: {url}"
+            return pages[url]
+
+        with patch.object(t4127, "_fetch", side_effect=fake_fetch):
+            with pytest.raises(ValueError, match="prior edition"):
+                t4127.parse(session=MagicMock())

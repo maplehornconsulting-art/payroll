@@ -186,6 +186,77 @@ class TestT4127EditionDiscovery:
         assert url.endswith(".html")
         assert "jan" in url.lower()
 
+    def test_edition_number_wins_over_month_in_h2(self):
+        """JAN 122nd vs stale JUL 121st in August → JAN (higher edition)."""
+        from datetime import date
+        from cra_feed.parsers.t4127 import _find_edition_url
+        index_html = _read_fixture("t4127_index.html")  # JAN=122nd, JUL=121st
+        url = _find_edition_url(index_html, today=date(2026, 8, 6))
+        assert "jan" in url.lower(), f"Expected 122nd (JAN) edition, got: {url}"
+
+    def test_new_jul_edition_wins_by_edition_number(self):
+        """Once CRA publishes JUL 123rd, it beats JAN 122nd regardless of date."""
+        from datetime import date
+        from cra_feed.parsers.t4127 import _find_edition_url
+        html = """
+        <html><body>
+          <a href="/payroll/t4127-payroll-deductions-formulas/t4127-jan.html">
+            T4127-JAN Payroll Deductions Formulas – 122nd Edition (HTML)
+          </a>
+          <a href="/payroll/t4127-payroll-deductions-formulas/t4127-jul.html">
+            T4127-JUL Payroll Deductions Formulas – 123rd Edition (HTML)
+          </a>
+        </body></html>
+        """
+        url = _find_edition_url(html, today=date(2026, 8, 6))
+        assert "jul" in url.lower(), f"Expected 123rd (JUL) edition, got: {url}"
+        # Edition number is authoritative even before July 1
+        url_h1 = _find_edition_url(html, today=date(2026, 3, 1))
+        assert "jul" in url_h1.lower(), f"Expected 123rd (JUL) edition, got: {url_h1}"
+
+    def test_month_fallback_prefers_jul_after_july_1(self):
+        """No edition numbers in link text → date-aware month preference."""
+        from datetime import date
+        from cra_feed.parsers.t4127 import _find_edition_url
+        html = """
+        <html><body>
+          <a href="/payroll/t4127-payroll-deductions-formulas/t4127-jan.html">T4127-JAN (HTML)</a>
+          <a href="/payroll/t4127-payroll-deductions-formulas/t4127-jul.html">T4127-JUL (HTML)</a>
+        </body></html>
+        """
+        url_aug = _find_edition_url(html, today=date(2026, 8, 6))
+        assert "jul" in url_aug.lower(), f"Expected JUL after July 1, got: {url_aug}"
+        url_mar = _find_edition_url(html, today=date(2026, 3, 1))
+        assert "jan" in url_mar.lower(), f"Expected JAN before July 1, got: {url_mar}"
+
+    def test_month_fallback_when_preferred_month_absent(self):
+        """Preferred month missing → fall back to the first candidate."""
+        from datetime import date
+        from cra_feed.parsers.t4127 import _find_edition_url
+        html = """
+        <html><body>
+          <a href="/payroll/t4127-payroll-deductions-formulas/t4127-jan.html">T4127-JAN (HTML)</a>
+        </body></html>
+        """
+        url = _find_edition_url(html, today=date(2026, 8, 6))
+        assert "jan" in url.lower(), f"Expected JAN fallback, got: {url}"
+
+    def test_mixed_numbered_unnumbered_uses_month_fallback(self):
+        """Only one link carries an edition number → numbers are not comparable,
+        so the date-aware month preference decides."""
+        from datetime import date
+        from cra_feed.parsers.t4127 import _find_edition_url
+        html = """
+        <html><body>
+          <a href="/payroll/t4127-payroll-deductions-formulas/t4127-jan.html">
+            T4127-JAN Payroll Deductions Formulas – 122nd Edition (HTML)
+          </a>
+          <a href="/payroll/t4127-payroll-deductions-formulas/t4127-jul.html">T4127-JUL (HTML)</a>
+        </body></html>
+        """
+        url = _find_edition_url(html, today=date(2026, 8, 6))
+        assert "jul" in url.lower(), f"Expected JUL via month fallback, got: {url}"
+
     def test_find_document_url_follows_link(self):
         from cra_feed.parsers.t4127 import _find_document_url
         edition_html = _read_fixture("t4127_edition.html")

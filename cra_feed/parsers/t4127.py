@@ -55,6 +55,10 @@ _LEGACY_URL_PATHS = (
 # e.g. "…/t4127-jan.html" → group(1) = "jan"
 _EDITION_MONTH_RE = re.compile(r"/t4127-([a-z]+)\.html$", re.I)
 
+# Regex to extract the edition number from a T4127 index link's text,
+# e.g. "T4127-JAN Payroll Deductions Formulas – 122nd Edition" → 122.
+_EDITION_NUMBER_RE = re.compile(r"(\d+)\s*(?:st|nd|rd|th)\s+edition", re.I)
+
 # Regex to detect recognizable federal/chapter content headings in a T4127 page.
 _FEDERAL_CONTENT_RE = re.compile(
     r"federal\s+(changes|income\s+tax|tax\s+(rates?|formulas?))"
@@ -95,13 +99,34 @@ def _fetch(session, url: str) -> str:
     return resp.text
 
 
-def _find_edition_url(index_html: str) -> str:
-    """Return the URL of the current T4127 HTML edition from the index page."""
+def _find_edition_url(index_html: str, today: date | None = None) -> str:
+    """Return the URL of the current T4127 HTML edition from the index page.
+
+    Selection logic (in order):
+
+    1. **Edition number** — CRA link text carries an ordinal edition number
+       (e.g. "T4127-JAN … – 122nd Edition"). When *every* candidate link has
+       one, the highest edition number wins. This is the authoritative signal:
+       it correctly picks JAN over a stale prior-year JUL link in H1, and the
+       new JUL edition over JAN once CRA publishes it in June.
+    2. **Date-aware month preference** (fallback when edition numbers are
+       missing from any candidate) — on or after July 1, prefer the JUL
+       edition; before July 1, prefer JAN. The previous behaviour of always
+       preferring JAN caused ``latest.json`` to keep serving January rates
+       for the entire second half of the year.
+    3. First candidate in document order, as a last resort.
+
+    Parameters
+    ----------
+    today:
+        Injectable current date for testing; defaults to ``date.today()``.
+    """
     soup = BeautifulSoup(index_html, "lxml")
+    if today is None:
+        today = date.today()
 
-    jan_candidates: list[str] = []
-    jul_candidates: list[str] = []
-
+    # Collect (month, href, link_text) for every JAN/JUL HTML edition link.
+    candidates: list[tuple[str, str, str]] = []
     for a in soup.find_all("a", href=True):
         href: str = a["href"]
         # Skip PDFs and anything that isn't HTML
@@ -111,23 +136,49 @@ def _find_edition_url(index_html: str) -> str:
         if "t4127" not in href_l:
             continue
         if "jan" in href_l:
-            jan_candidates.append(href)
+            month = "jan"
         elif "jul" in href_l:
-            jul_candidates.append(href)
+            month = "jul"
+        else:
+            continue
+        link_text = " ".join(a.get_text().split())
+        candidates.append((month, href, link_text))
 
-    # Prefer the JAN edition (most current for a given calendar year)
-    chosen: str | None = None
-    for href in jan_candidates + jul_candidates:
-        chosen = href
-        break
-
-    if chosen is None:
+    if not candidates:
         raise ValueError(
             "Could not find a T4127 HTML edition link on the index page. "
             f"Index URL: {T4127_INDEX_URL}"
         )
 
-    return urljoin(T4127_INDEX_URL, chosen)
+    # Strategy 1: highest edition number, but only when every candidate has
+    # one — comparing a numbered link against an unnumbered one is meaningless.
+    numbered: list[tuple[int, str]] = []
+    for _month, href, link_text in candidates:
+        m = _EDITION_NUMBER_RE.search(link_text)
+        if m:
+            numbered.append((int(m.group(1)), href))
+    if numbered and len(numbered) == len(candidates):
+        numbered.sort(key=lambda t: t[0], reverse=True)
+        edition_no, chosen = numbered[0]
+        logger.info(
+            "T4127 edition selected by edition number %d: %s", edition_no, chosen
+        )
+        return urljoin(T4127_INDEX_URL, chosen)
+
+    # Strategy 2: date-aware month preference.
+    preferred_month = "jul" if today >= date(today.year, 7, 1) else "jan"
+    for month, href, _link_text in candidates:
+        if month == preferred_month:
+            logger.info(
+                "T4127 edition selected by month preference (%s, today=%s): %s",
+                preferred_month,
+                today.isoformat(),
+                href,
+            )
+            return urljoin(T4127_INDEX_URL, href)
+
+    # Strategy 3: first candidate in document order.
+    return urljoin(T4127_INDEX_URL, candidates[0][1])
 
 
 def _edition_base_url(edition_url: str) -> str:

@@ -99,6 +99,29 @@ def _fetch(session, url: str) -> str:
     return resp.text
 
 
+def _collect_edition_candidates(index_html: str) -> list[tuple[str, str, str]]:
+    """Collect (month, href, link_text) for every JAN/JUL HTML edition link."""
+    soup = BeautifulSoup(index_html, "lxml")
+    candidates: list[tuple[str, str, str]] = []
+    for a in soup.find_all("a", href=True):
+        href: str = a["href"]
+        # Skip PDFs and anything that isn't HTML
+        if href.lower().endswith(".pdf"):
+            continue
+        href_l = href.lower()
+        if "t4127" not in href_l:
+            continue
+        if "jan" in href_l:
+            month = "jan"
+        elif "jul" in href_l:
+            month = "jul"
+        else:
+            continue
+        link_text = " ".join(a.get_text().split())
+        candidates.append((month, href, link_text))
+    return candidates
+
+
 def _find_edition_url(index_html: str, today: date | None = None) -> str:
     """Return the URL of the current T4127 HTML edition from the index page.
 
@@ -121,29 +144,10 @@ def _find_edition_url(index_html: str, today: date | None = None) -> str:
     today:
         Injectable current date for testing; defaults to ``date.today()``.
     """
-    soup = BeautifulSoup(index_html, "lxml")
     if today is None:
         today = date.today()
 
-    # Collect (month, href, link_text) for every JAN/JUL HTML edition link.
-    candidates: list[tuple[str, str, str]] = []
-    for a in soup.find_all("a", href=True):
-        href: str = a["href"]
-        # Skip PDFs and anything that isn't HTML
-        if href.lower().endswith(".pdf"):
-            continue
-        href_l = href.lower()
-        if "t4127" not in href_l:
-            continue
-        if "jan" in href_l:
-            month = "jan"
-        elif "jul" in href_l:
-            month = "jul"
-        else:
-            continue
-        link_text = " ".join(a.get_text().split())
-        candidates.append((month, href, link_text))
-
+    candidates = _collect_edition_candidates(index_html)
     if not candidates:
         raise ValueError(
             "Could not find a T4127 HTML edition link on the index page. "
@@ -180,6 +184,36 @@ def _find_edition_url(index_html: str, today: date | None = None) -> str:
     # Strategy 3: first candidate in document order.
     return urljoin(T4127_INDEX_URL, candidates[0][1])
 
+
+def _find_previous_edition_url(index_html: str, chosen_url: str) -> str | None:
+    """Return the URL of the *other* T4127 edition on the index page.
+
+    July editions are delta publications ("refer to the <previous> edition
+    for any sections that have not been reproduced"), so the scraper needs
+    the referenced prior edition to fill sections the current edition omits
+    (federal BPAF, unchanged provinces' claim-code BPAs). Preference: the
+    highest-numbered candidate that is not the chosen one; otherwise the
+    first non-chosen candidate. Returns ``None`` when the index lists only
+    one edition.
+    """
+    candidates = _collect_edition_candidates(index_html)
+    others: list[tuple[int, str]] = []
+    unnumbered: list[str] = []
+    for _month, href, link_text in candidates:
+        resolved = urljoin(T4127_INDEX_URL, href)
+        if resolved == chosen_url:
+            continue
+        m = _EDITION_NUMBER_RE.search(link_text)
+        if m:
+            others.append((int(m.group(1)), resolved))
+        else:
+            unnumbered.append(resolved)
+    if others:
+        others.sort(key=lambda t: t[0], reverse=True)
+        return others[0][1]
+    if unnumbered:
+        return unnumbered[0]
+    return None
 
 def _edition_base_url(edition_url: str) -> str:
     """
@@ -623,6 +657,23 @@ def _parse_ul_bracket_items(ul) -> list[dict]:
     return brackets
 
 
+def _ul_in_federal_context(ul) -> bool:
+    """Return True when *ul* sits under a federal heading (or has no heading).
+
+    Guard for Strategy E: July delta editions carry *provincial* bulleted
+    bracket lists (e.g. British Columbia's prorated rates) using the exact
+    same "…the tax rate is X%" wording as the federal list. Accepting those
+    as federal would publish provincial rates as federal rates. A bracket
+    list only counts as federal when the nearest preceding h1–h4 heading
+    mentions "federal" (pages with no headings at all are accepted, to keep
+    minimal/test pages working).
+    """
+    heading = ul.find_previous(["h1", "h2", "h3", "h4"])
+    if heading is None:
+        return True
+    return "federal" in heading.get_text(" ", strip=True).lower()
+
+
 def _parse_brackets_from_ul(soup: BeautifulSoup) -> list[dict]:
     """
     Strategy E: parse federal tax brackets from a bulleted list (2026+ format).
@@ -632,6 +683,10 @@ def _parse_brackets_from_ul(soup: BeautifulSoup) -> list[dict]:
 
     Secondary (fallback): scan all <ul>/<ol> for lists whose items all match
     the bracket pattern; accept if at least 4 items match.
+
+    Both paths require the list to be in a *federal* context (see
+    :func:`_ul_in_federal_context`) so that provincial bracket lists in
+    July delta editions are never mistaken for federal brackets.
     """
     # Primary: look for the lead-in sentence, then take the next <ul>/<ol>.
     # Use find_all_next with a limit to avoid scanning the full document.
@@ -640,6 +695,8 @@ def _parse_brackets_from_ul(soup: BeautifulSoup) -> list[dict]:
         if "tax rates" in text and "as follows" in text:
             for sib in p.find_all_next(limit=15):
                 if sib.name in ("ul", "ol"):
+                    if not _ul_in_federal_context(sib):
+                        break
                     brackets = _parse_ul_bracket_items(sib)
                     if brackets:
                         return brackets
@@ -649,11 +706,14 @@ def _parse_brackets_from_ul(soup: BeautifulSoup) -> list[dict]:
 
     # Secondary: scan all <ul>/<ol> for at least 4 bracket-like items
     for ul in soup.find_all(["ul", "ol"]):
+        if not _ul_in_federal_context(ul):
+            continue
         brackets = _parse_ul_bracket_items(ul)
         if len(brackets) >= 4:
             return brackets
 
     return []
+
 
 
 # ---------------------------------------------------------------------------
@@ -734,35 +794,75 @@ def _parse_cea(soup: BeautifulSoup) -> float | None:
     return None
 
 
-def _parse_federal(soup: BeautifulSoup, source_url: str = "") -> dict:
+def _parse_federal(
+    soup: BeautifulSoup, source_url: str = "", require_bpaf: bool = True
+) -> dict:
     """
     Extract federal income tax brackets, BPAF min/max, K1 rate, and CEA.
 
     Uses multiple strategies so minor changes to canada.ca HTML layout do
     not cause hard failures:
 
-    * Strategy E – bulleted-list extraction (2026+ format).
+    * Strategy F – Table 8.1 Federal block (most authoritative when present).
+    * Strategy E – bulleted-list extraction (2026+ format, federal-context
+      guarded so provincial lists in July delta editions are never matched).
     * Strategy A – find a known heading phrase, take the first table after it.
     * Strategy D – table caption match.
     * Strategy B – score all tables by how bracket-table-like they look; accept
       the highest-scoring one (minimum score 3).
     * Strategy C – anchor on a known dollar/rate token and walk up to a table.
 
+    Parameters
+    ----------
+    require_bpaf:
+        When True (default), a BPAF parse failure raises ``ValueError``.
+        When False, BPAF failure returns ``"bpaf": None`` — used for July
+        delta editions, which omit the federal BPAF section ("refer to the
+        previous edition for any sections that have not been reproduced");
+        the caller then fills BPAF from the referenced prior edition.
+
     Returns::
 
         {
             "tax_brackets": [...],
-            "bpaf": {"min": float, "max": float},
+            "bpaf": {"min": float, "max": float} | None,
             "k1_rate": float,
             "cea": float | None,   # None when automatic extraction fails
         }
     """
+    def _bpaf_or_none(k1_rate: float) -> dict | None:
+        try:
+            return _parse_bpaf(soup, k1_rate)
+        except ValueError:
+            if require_bpaf:
+                raise
+            logger.warning(
+                "Federal BPAF not present in this T4127 document (expected for "
+                "July delta editions); will fill from the referenced prior edition."
+            )
+            return None
+
+    # Strategy F — Table 8.1 Federal block (2026+ format)
+    brackets_81 = _parse_table_81_all(soup).get("Federal")
+    if brackets_81:
+        logger.info("Federal brackets located via Strategy F (Table 8.1)")
+        k1_rate = brackets_81[0]["rate"]
+        bpaf = _bpaf_or_none(k1_rate)
+        cea = _parse_cea(soup)
+        if cea is None:
+            logger.warning(
+                "Could not automatically extract Canada Employment Amount (CEA) from "
+                "T4127 HTML. The existing rule parameter value will be used unchanged. "
+                "Review rule_parameter_l10n_ca_fed_canada_employment_amount annually."
+            )
+        return {"tax_brackets": brackets_81, "bpaf": bpaf, "k1_rate": k1_rate, "cea": cea}
+
     # Strategy E — bulleted list (2026+ format)
     brackets_ul = _parse_brackets_from_ul(soup)
     if brackets_ul:
         logger.info("Federal brackets located via Strategy E (bulleted list)")
         k1_rate = brackets_ul[0]["rate"]
-        bpaf = _parse_bpaf(soup, k1_rate)
+        bpaf = _bpaf_or_none(k1_rate)
         cea = _parse_cea(soup)
         if cea is None:
             logger.warning(
@@ -799,7 +899,7 @@ def _parse_federal(soup: BeautifulSoup, source_url: str = "") -> dict:
     k1_rate = brackets[0]["rate"]  # lowest rate = K1
 
     # --- BPAF ---
-    bpaf = _parse_bpaf(soup, k1_rate)
+    bpaf = _bpaf_or_none(k1_rate)
 
     cea = _parse_cea(soup)
     if cea is None:
@@ -986,17 +1086,17 @@ def _parse_bpaf(soup: BeautifulSoup, k1_rate: float) -> dict:
 # Provincial sections
 # ---------------------------------------------------------------------------
 
-def _parse_table_81(soup: BeautifulSoup) -> dict[str, list[dict]]:
+def _parse_table_81_all(soup: BeautifulSoup) -> dict[str, list[dict]]:
     """
-    Parse Table 8.1 from the 2026+ T4127 format.
+    Parse Table 8.1 from the 2026+ T4127 format, INCLUDING the Federal block.
 
-    Table 8.1 consolidates all provincial/territorial rates (V), income
-    thresholds (A), and constants (K, KP) into a single compact grid.
+    Table 8.1 consolidates federal and all provincial/territorial rates
+    (R, V), income thresholds (A), and constants (K, KP) into a single grid.
 
     Layout::
 
-        row: ['Federal', 'A', '0', '58,523', ...]   # Federal thresholds – skip
-        row: ['R', '0.1400', '0.2050', ...]          # Federal rates – skip
+        row: ['Federal', 'A', '0', '58,523', ...]   # Federal thresholds
+        row: ['R', '0.1400', '0.2050', ...]          # Federal rates
         row: ['K', '0', '3,804', ...]                # Federal constants – skip
         row: ['AB', 'A', '0', '61,200', '154,259', ...] # AB thresholds
         row: ['V', '0.0800', '0.1000', ...]          # AB rates
@@ -1006,8 +1106,9 @@ def _parse_table_81(soup: BeautifulSoup) -> dict[str, list[dict]]:
     Returns
     -------
     dict[str, list[dict]]
-        ``{prov_code: [{"up_to": float | None, "rate": float}, ...]}``
-        Only provinces with at least 2 brackets are included.
+        ``{code: [{"up_to": float | None, "rate": float}, ...]}`` where
+        *code* is a 2-letter province code or the literal ``"Federal"``.
+        Only entries with at least 2 brackets are included.
         Returns an empty dict if Table 8.1 is not found in the HTML.
     """
     known_codes = set(PROVINCE_NAME_TO_CODE.values())
@@ -1017,15 +1118,21 @@ def _parse_table_81(soup: BeautifulSoup) -> dict[str, list[dict]]:
     for table in soup.find_all("table"):
         cap = table.find("caption")
         if cap and "Table 8.1" in cap.get_text(" ", strip=True):
-            table_81 = table
-            break
+            cap_text = cap.get_text(" ", strip=True)
+            # "Table 8.11", "Table 8.14" (claim codes) also contain the
+            # substring "Table 8.1" — require the char after "8.1" to be a
+            # non-digit so claim-codes tables are never selected here.
+            m = re.search(r"Table\s+8\.1(?!\d)", cap_text)
+            if m:
+                table_81 = table
+                break
 
     if table_81 is None:
         return {}
 
-    prov_thresholds: dict[str, list[float]] = {}
-    prov_rates: dict[str, list[float]] = {}
-    current_prov: str | None = None  # None while in the Federal block
+    thresholds_by_code: dict[str, list[float]] = {}
+    rates_by_code: dict[str, list[float]] = {}
+    current_code: str | None = None
 
     for row in table_81.find_all("tr"):
         cells = row.find_all(["td", "th"])
@@ -1038,10 +1145,8 @@ def _parse_table_81(soup: BeautifulSoup) -> dict[str, list[dict]]:
 
         # Threshold row: second cell is "A"
         if second == "A":
-            if first == "Federal":
-                current_prov = None  # skip Federal block
-            elif first in known_codes:
-                current_prov = first
+            if first == "Federal" or first in known_codes:
+                current_code = first
                 thresholds: list[float] = []
                 for t in cell_texts[2:]:
                     t_s = t.strip()
@@ -1051,7 +1156,9 @@ def _parse_table_81(soup: BeautifulSoup) -> dict[str, list[dict]]:
                         thresholds.append(float(t_s.replace(",", "").replace("$", "")))
                     except ValueError:
                         continue
-                prov_thresholds[current_prov] = thresholds
+                thresholds_by_code[current_code] = thresholds
+            else:
+                current_code = None
             continue
 
         # Constants rows – not needed
@@ -1060,7 +1167,8 @@ def _parse_table_81(soup: BeautifulSoup) -> dict[str, list[dict]]:
 
         # Rate row: "V" for provinces, "R" for Federal
         if first in ("V", "R"):
-            if first == "V" and current_prov is not None:
+            expected = "R" if current_code == "Federal" else "V"
+            if first == expected and current_code is not None:
                 rates: list[float] = []
                 for t in cell_texts[1:]:
                     t_s = t.strip()
@@ -1070,16 +1178,16 @@ def _parse_table_81(soup: BeautifulSoup) -> dict[str, list[dict]]:
                         rates.append(float(t_s.replace(",", "").replace("%", "")))
                     except ValueError:
                         continue
-                prov_rates[current_prov] = rates
+                rates_by_code[current_code] = rates
             continue
 
     # Build bracket lists from accumulated thresholds and rates
     result: dict[str, list[dict]] = {}
-    for code in prov_thresholds:
-        if code not in prov_rates:
+    for code in thresholds_by_code:
+        if code not in rates_by_code:
             continue
-        thresholds = prov_thresholds[code]
-        rates = prov_rates[code]
+        thresholds = thresholds_by_code[code]
+        rates = rates_by_code[code]
         n = len(rates)
         if n < 1:
             continue
@@ -1095,6 +1203,14 @@ def _parse_table_81(soup: BeautifulSoup) -> dict[str, list[dict]]:
             result[code] = brackets
 
     return result
+
+
+def _parse_table_81(soup: BeautifulSoup) -> dict[str, list[dict]]:
+    """Provinces-only view of Table 8.1 (see :func:`_parse_table_81_all`)."""
+    result = _parse_table_81_all(soup)
+    result.pop("Federal", None)
+    return result
+
 
 
 def _parse_claim_code_bpas(soup: BeautifulSoup) -> dict[str, dict]:
@@ -1285,20 +1401,26 @@ def _parse_table_82_surtaxes(soup: BeautifulSoup) -> dict[str, list[list[float]]
     return result
 
 
-def _parse_provinces(soup: BeautifulSoup) -> dict[str, dict]:
+def _parse_provinces(
+    soup: BeautifulSoup, require_bpa: bool = True
+) -> dict[str, dict]:
     """
     Parse all in-scope provincial/territorial tax data from the T4127 HTML.
 
     Returns a dict keyed by 2-letter province code with values::
 
-        {"bpa": float, "tax_brackets": [...], "surtax": [...]}
+        {"bpa": float | None, "tax_brackets": [...], "surtax": [...]}
 
-    Raises
-    ------
-    ValueError
-        When a province section is found with tax brackets but the BPA cannot
-        be parsed.  A missing BPA must abort the scrape because defaulting to
-        $0 would over-withhold employee tax.
+    Parameters
+    ----------
+    require_bpa:
+        When True (default), a province with tax brackets but no parsable BPA
+        aborts the scrape (``ValueError``) — defaulting to $0 would
+        over-withhold employee tax. When False, such provinces are returned
+        with ``"bpa": None`` — used for July delta editions, which reproduce
+        claim-code tables only for changed provinces; the caller fills the
+        missing BPAs from the referenced prior edition and enforces
+        completeness after the merge.
     """
     provinces: dict[str, dict] = {}
 
@@ -1308,11 +1430,20 @@ def _parse_provinces(soup: BeautifulSoup) -> dict[str, dict]:
         bpas_by_code = _parse_claim_code_bpas(soup)
         for code, brackets in brackets_by_code.items():
             if code not in bpas_by_code:
-                raise ValueError(
-                    f"Province {code!r} has tax brackets from Table 8.1 but no BPA "
-                    f"found in claim codes tables. A missing BPA must abort the scrape "
-                    f"because defaulting to $0 would over-withhold employee tax."
+                if require_bpa:
+                    raise ValueError(
+                        f"Province {code!r} has tax brackets from Table 8.1 but no BPA "
+                        f"found in claim codes tables. A missing BPA must abort the scrape "
+                        f"because defaulting to $0 would over-withhold employee tax."
+                    )
+                logger.info(
+                    "Province %s: brackets present but no claim-codes BPA in this "
+                    "document (expected for July delta editions); will fill from "
+                    "the referenced prior edition.",
+                    code,
                 )
+                provinces[code] = {"bpa": None, "tax_brackets": brackets}
+                continue
             bpa_info = bpas_by_code[code]
             prov_result: dict = {"bpa": bpa_info["bpa"], "tax_brackets": brackets}
             if bpa_info.get("k1p") is not None:
@@ -1663,16 +1794,21 @@ def parse(session=None, debug_dir=None) -> dict:
     #    TOC link that might land on a topic page without bracket data.
     #    Fall back to soup_doc (the linked sub-page) only when the edition page
     #    itself has no recognizable federal bracket table.
+    #    BPAF is allowed to be missing at this stage: July editions are delta
+    #    publications ("refer to the previous edition for any sections that
+    #    have not been reproduced") and omit the federal BPAF section when it
+    #    is unchanged. Missing pieces are filled from the referenced prior
+    #    edition below, and completeness is enforced after the merge.
     _data_soup: BeautifulSoup
     _data_html: str
     try:
-        federal = _parse_federal(soup_edition, source_url=edition_url)
+        federal = _parse_federal(soup_edition, source_url=edition_url, require_bpaf=False)
         _data_soup = soup_edition
         _data_html = edition_html
     except ValueError:
         # Edition page has no bracket data; try the (possibly different) sub-page.
         try:
-            federal = _parse_federal(soup_doc, source_url=doc_url)
+            federal = _parse_federal(soup_doc, source_url=doc_url, require_bpaf=False)
             _data_soup = soup_doc
             _data_html = doc_html
         except Exception:
@@ -1684,17 +1820,116 @@ def parse(session=None, debug_dir=None) -> dict:
                 logger.info("Debug HTML written to %s", debug_path)
             raise
 
-    # 7. Provincial data (best-effort) — use the same soup that held the
-    #    federal bracket data so both come from the same source document.
-    provinces = _parse_provinces(_data_soup)
+    # 7. Provincial data — use the same soup that held the federal bracket
+    #    data so both come from the same source document. BPAs are allowed to
+    #    be missing at this stage (July delta editions reproduce claim-code
+    #    tables only for changed provinces); enforced after the merge.
+    provinces = _parse_provinces(_data_soup, require_bpa=False)
     if not provinces:
         logger.warning(
             "T4127 parser returned no provincial data — "
             "the document structure may have changed"
         )
 
-    # Deduplicated list: index page + edition page + doc page (often the same as edition)
-    source_urls = list(dict.fromkeys([T4127_INDEX_URL, edition_url, doc_url]))
+    # 8. Delta-edition merge: when the chosen document omitted the federal
+    #    BPAF or any province's BPA, fetch the referenced prior edition from
+    #    the index page and fill the gaps. Current-edition values always win;
+    #    the prior edition only supplies what the current one omitted.
+    prev_source_urls: list[str] = []
+    missing_bpaf = federal.get("bpaf") is None
+    missing_bpa_codes = sorted(
+        code for code, pdata in provinces.items() if pdata.get("bpa") is None
+    )
+    if missing_bpaf or missing_bpa_codes:
+        logger.info(
+            "Delta edition detected (missing federal BPAF: %s; provinces missing "
+            "BPA: %s). Fetching the referenced prior edition to fill gaps.",
+            missing_bpaf,
+            ", ".join(missing_bpa_codes) or "none",
+        )
+        prev_edition_url = _find_previous_edition_url(index_html, edition_url)
+        if prev_edition_url is None:
+            raise ValueError(
+                "Current T4127 edition is a delta publication (federal BPAF "
+                "and/or provincial BPAs not reproduced) but no prior edition "
+                "link was found on the index page to fill the gaps. "
+                f"Index URL: {T4127_INDEX_URL}"
+            )
+
+        prev_edition_html = _fetch(session, prev_edition_url)
+        prev_doc_url = _find_document_url(prev_edition_url, prev_edition_html)
+        if prev_doc_url != prev_edition_url:
+            prev_doc_html = _fetch(session, prev_doc_url)
+        else:
+            prev_doc_html = prev_edition_html
+        prev_soup = BeautifulSoup(prev_doc_html, "lxml")
+        prev_source_urls = [prev_edition_url, prev_doc_url]
+
+        # Fill federal BPAF from the prior edition.
+        if missing_bpaf:
+            federal["bpaf"] = _parse_bpaf(prev_soup, federal["k1_rate"])
+            logger.info(
+                "Filled federal BPAF from prior edition %s: %s",
+                prev_doc_url,
+                federal["bpaf"],
+            )
+
+        # Fill missing provincial BPAs (and K1P) from the prior edition's
+        # claim-code tables; fall back to a full province parse for legacy
+        # per-section formats.
+        if missing_bpa_codes:
+            prev_bpas = _parse_claim_code_bpas(prev_soup)
+            if not prev_bpas:
+                prev_provinces = _parse_provinces(prev_soup, require_bpa=False)
+                prev_bpas = {
+                    code: {
+                        k: v
+                        for k, v in (("bpa", pdata.get("bpa")), ("k1p", pdata.get("k1p")))
+                        if v is not None
+                    }
+                    for code, pdata in prev_provinces.items()
+                    if pdata.get("bpa") is not None
+                }
+            for code in missing_bpa_codes:
+                prev_info = prev_bpas.get(code)
+                if prev_info is None or prev_info.get("bpa") is None:
+                    continue
+                provinces[code]["bpa"] = prev_info["bpa"]
+                if provinces[code].get("k1p") is None and prev_info.get("k1p") is not None:
+                    provinces[code]["k1p"] = prev_info["k1p"]
+            filled = [
+                code for code in missing_bpa_codes if provinces[code].get("bpa") is not None
+            ]
+            logger.info(
+                "Filled BPAs from prior edition %s for: %s",
+                prev_doc_url,
+                ", ".join(filled) or "none",
+            )
+
+    # 9. Enforce completeness after the merge — the original safety rule:
+    #    a missing BPAF or BPA must abort the scrape because defaulting to $0
+    #    would over-withhold employee tax.
+    if federal.get("bpaf") is None:
+        raise ValueError(
+            "Could not locate federal BPAF in the current T4127 edition or the "
+            "referenced prior edition. CRA may have changed the page format."
+        )
+    still_missing = sorted(
+        code for code, pdata in provinces.items() if pdata.get("bpa") is None
+    )
+    if still_missing:
+        raise ValueError(
+            f"Provinces {', '.join(still_missing)} have tax brackets but no BPA in "
+            f"the current T4127 edition or the referenced prior edition. A missing "
+            f"BPA must abort the scrape because defaulting to $0 would "
+            f"over-withhold employee tax."
+        )
+
+    # Deduplicated list: index page + edition page + doc page (often the same
+    # as edition) + any prior-edition pages used for the delta merge.
+    source_urls = list(
+        dict.fromkeys([T4127_INDEX_URL, edition_url, doc_url, *prev_source_urls])
+    )
 
     return {
         "bpaf": federal["bpaf"],

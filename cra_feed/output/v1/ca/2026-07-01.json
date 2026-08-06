@@ -2,34 +2,38 @@
   "schema_version": "1.0",
   "jurisdiction": "CA",
   "effective_date": "2026-07-01",
-  "published_at": "2026-04-18T07:09:32Z",
+  "published_at": "2026-08-06T06:06:27Z",
   "source_urls": [
-    "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/payroll/t4127-payroll-deductions-formulas-computer-programs.html",
+    "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas.html",
+    "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas/t4127-jul.html",
+    "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas/t4127-jul/t4127-jul-payroll-deductions-formulas.html",
+    "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas/t4127-jan.html",
+    "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas/t4127-jan/t4127-jan-payroll-deductions-formulas-computer-programs.html",
     "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/payroll/payroll-deductions-contributions/canada-pension-plan-cpp/cpp-contribution-rates-maximums-exemptions.html",
-    "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/payroll/payroll-deductions-contributions/employment-insurance-ei/ei-premium-rates-maximums.html",
-    "https://www.canada.ca/en/revenue-agency/services/forms-publications/td1-personal-tax-credits-returns.html"
+    "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/payroll/calculating-deductions/making-deductions/second-additional-cpp-contribution-rates-maximums.html",
+    "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/payroll/payroll-deductions-contributions/employment-insurance-ei/ei-premium-rates-maximums.html"
   ],
   "federal": {
     "bpaf": {
-      "min": 14538.0,
-      "max": 16129.0
+      "min": 14829.0,
+      "max": 16452.0
     },
-    "k1_rate": 0.15,
+    "k1_rate": 0.14,
     "tax_brackets": [
       {
-        "up_to": 57375.0,
-        "rate": 0.15
+        "up_to": 58523.0,
+        "rate": 0.14
       },
       {
-        "up_to": 114750.0,
+        "up_to": 117045.0,
         "rate": 0.205
       },
       {
-        "up_to": 158519.0,
+        "up_to": 181440.0,
         "rate": 0.26
       },
       {
-        "up_to": 220000.0,
+        "up_to": 258482.0,
         "rate": 0.29
       },
       {
@@ -39,76 +43,84 @@
     ]
   },
   "cpp": {
-    "rate": 0.0595,
-    "ympe": 71300.0,
+    "rate": 0.059500000000000004,
+    "ympe": 74600.0,
     "basic_exemption": 3500.0
   },
   "cpp2": {
     "rate": 0.04,
-    "yampe": 81900.0
+    "yampe": 85000.0
   },
   "ei": {
-    "rate": 0.0166,
-    "max_insurable_earnings": 65700.0
+    "rate": 0.0163,
+    "max_insurable_earnings": 68900.0
   },
   "provinces": {
     "AB": {
-      "bpa": 21003.0,
+      "bpa": 22769.0,
       "tax_brackets": [
         {
-          "up_to": 148269.0,
+          "up_to": 61200.0,
+          "rate": 0.08
+        },
+        {
+          "up_to": 154259.0,
           "rate": 0.1
         },
         {
-          "up_to": 177922.0,
+          "up_to": 185111.0,
           "rate": 0.12
         },
         {
-          "up_to": 237230.0,
+          "up_to": 246813.0,
           "rate": 0.13
         },
         {
-          "up_to": 355845.0,
+          "up_to": 370220.0,
           "rate": 0.14
         },
         {
           "up_to": null,
           "rate": 0.15
         }
-      ]
+      ],
+      "surtax": [],
+      "k1p": 1821.52
     },
     "BC": {
-      "bpa": 11981.0,
+      "bpa": 13216.0,
       "tax_brackets": [
         {
-          "up_to": 45654.0,
-          "rate": 0.0506
+          "up_to": 50363.0,
+          "rate": 0.0614
         },
         {
-          "up_to": 91310.0,
+          "up_to": 100728.0,
           "rate": 0.077
         },
         {
-          "up_to": 104835.0,
+          "up_to": 115648.0,
           "rate": 0.105
         },
         {
-          "up_to": 127299.0,
+          "up_to": 140430.0,
           "rate": 0.1229
         },
         {
-          "up_to": 172602.0,
+          "up_to": 190405.0,
           "rate": 0.147
         },
         {
-          "up_to": 240716.0,
+          "up_to": 265545.0,
           "rate": 0.168
         },
         {
           "up_to": null,
           "rate": 0.205
         }
-      ]
+      ],
+      "surtax": [],
+      "k1p": 811.46
     },
     "MB": {
       "bpa": 15780.0,
@@ -125,134 +137,154 @@
           "up_to": null,
           "rate": 0.174
         }
-      ]
+      ],
+      "surtax": [],
+      "k1p": 1704.24
     },
     "NB": {
-      "bpa": 12458.0,
+      "bpa": 13664.0,
       "tax_brackets": [
         {
-          "up_to": 49958.0,
+          "up_to": 52333.0,
           "rate": 0.094
         },
         {
-          "up_to": 99916.0,
+          "up_to": 104666.0,
           "rate": 0.14
         },
         {
-          "up_to": 185064.0,
+          "up_to": 193861.0,
           "rate": 0.16
         },
         {
           "up_to": null,
           "rate": 0.195
         }
-      ]
+      ],
+      "surtax": [],
+      "k1p": 1284.42
     },
     "NL": {
-      "bpa": 10818.0,
+      "bpa": 15000.0,
       "tax_brackets": [
         {
-          "up_to": 43198.0,
+          "up_to": 44678.0,
           "rate": 0.087
         },
         {
-          "up_to": 86395.0,
+          "up_to": 89354.0,
           "rate": 0.145
         },
         {
-          "up_to": 154244.0,
+          "up_to": 159528.0,
           "rate": 0.158
         },
         {
-          "up_to": 215943.0,
+          "up_to": 223340.0,
           "rate": 0.178
         },
         {
-          "up_to": 275870.0,
+          "up_to": 285319.0,
           "rate": 0.198
         },
         {
-          "up_to": null,
+          "up_to": 570638.0,
+          "rate": 0.208
+        },
+        {
+          "up_to": 1141275.0,
           "rate": 0.213
+        },
+        {
+          "up_to": null,
+          "rate": 0.218
         }
-      ]
+      ],
+      "surtax": [],
+      "k1p": 1305.0
     },
     "NS": {
-      "bpa": 8481.0,
+      "bpa": 11932.0,
       "tax_brackets": [
         {
-          "up_to": 29590.0,
+          "up_to": 30995.0,
           "rate": 0.0879
         },
         {
-          "up_to": 59180.0,
+          "up_to": 61991.0,
           "rate": 0.1495
         },
         {
-          "up_to": 93000.0,
+          "up_to": 97417.0,
           "rate": 0.1667
         },
         {
-          "up_to": 150000.0,
+          "up_to": 157124.0,
           "rate": 0.175
         },
         {
           "up_to": null,
           "rate": 0.21
         }
-      ]
+      ],
+      "surtax": [],
+      "k1p": 1048.82
     },
     "NT": {
-      "bpa": 16593.0,
+      "bpa": 18198.0,
       "tax_brackets": [
         {
-          "up_to": 50597.0,
+          "up_to": 53003.0,
           "rate": 0.059
         },
         {
-          "up_to": 101198.0,
+          "up_to": 106009.0,
           "rate": 0.086
         },
         {
-          "up_to": 164525.0,
+          "up_to": 172346.0,
           "rate": 0.122
         },
         {
           "up_to": null,
           "rate": 0.1405
         }
-      ]
+      ],
+      "surtax": [],
+      "k1p": 1073.68
     },
     "NU": {
-      "bpa": 17925.0,
+      "bpa": 19659.0,
       "tax_brackets": [
         {
-          "up_to": 53268.0,
+          "up_to": 55801.0,
           "rate": 0.04
         },
         {
-          "up_to": 106537.0,
+          "up_to": 111602.0,
           "rate": 0.07
         },
         {
-          "up_to": 173205.0,
+          "up_to": 181439.0,
           "rate": 0.09
         },
         {
           "up_to": null,
           "rate": 0.115
         }
-      ]
+      ],
+      "surtax": [],
+      "k1p": 786.36
     },
     "ON": {
-      "bpa": 11865.0,
+      "bpa": 12989.0,
       "tax_brackets": [
         {
-          "up_to": 51446.0,
+          "up_to": 53891.0,
           "rate": 0.0505
         },
         {
-          "up_to": 102894.0,
+          "up_to": 107785.0,
           "rate": 0.0915
         },
         {
@@ -267,63 +299,82 @@
           "up_to": null,
           "rate": 0.1316
         }
-      ]
+      ],
+      "surtax": [
+        [
+          5818.0,
+          0.2
+        ],
+        [
+          7446.0,
+          0.36
+        ]
+      ],
+      "k1p": 655.94
     },
     "PE": {
-      "bpa": 12000.0,
+      "bpa": 15000.0,
       "tax_brackets": [
         {
-          "up_to": 32656.0,
-          "rate": 0.096
+          "up_to": 33928.0,
+          "rate": 0.095
         },
         {
-          "up_to": 64313.0,
-          "rate": 0.1337
+          "up_to": 65820.0,
+          "rate": 0.1347
         },
         {
-          "up_to": 105000.0,
-          "rate": 0.167
+          "up_to": 106890.0,
+          "rate": 0.166
         },
         {
-          "up_to": 140000.0,
-          "rate": 0.18
+          "up_to": 142520.0,
+          "rate": 0.1762
+        },
+        {
+          "up_to": 200000.0,
+          "rate": 0.19
         },
         {
           "up_to": null,
-          "rate": 0.187
+          "rate": 0.21
         }
-      ]
+      ],
+      "surtax": [],
+      "k1p": 1425.0
     },
     "SK": {
-      "bpa": 17661.0,
+      "bpa": 20381.0,
       "tax_brackets": [
         {
-          "up_to": 49720.0,
+          "up_to": 54532.0,
           "rate": 0.105
         },
         {
-          "up_to": 142058.0,
+          "up_to": 155805.0,
           "rate": 0.125
         },
         {
           "up_to": null,
           "rate": 0.145
         }
-      ]
+      ],
+      "surtax": [],
+      "k1p": 2140.01
     },
     "YT": {
-      "bpa": 16129.0,
+      "bpa": 16452.0,
       "tax_brackets": [
         {
-          "up_to": 57375.0,
+          "up_to": 58523.0,
           "rate": 0.064
         },
         {
-          "up_to": 114750.0,
+          "up_to": 117045.0,
           "rate": 0.09
         },
         {
-          "up_to": 158519.0,
+          "up_to": 181440.0,
           "rate": 0.109
         },
         {
@@ -334,8 +385,10 @@
           "up_to": null,
           "rate": 0.15
         }
-      ]
+      ],
+      "surtax": [],
+      "k1p": 1052.93
     }
   },
-  "checksum_sha256": "7d488760651df651da983deb7485527225848a0c520caa6846945c65bbd82197"
+  "checksum_sha256": "eaed609a3c47c68f9071a520388f8e6273898d37e2fd3280596224ae2aa70b1a"
 }

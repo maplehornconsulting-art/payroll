@@ -1,10 +1,12 @@
 {
   "schema_version": "1.0",
   "jurisdiction": "CA",
-  "effective_date": "2026-01-01",
-  "published_at": "2026-06-05T14:42:36Z",
+  "effective_date": "2026-07-01",
+  "published_at": "2026-08-06T06:06:27Z",
   "source_urls": [
     "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas.html",
+    "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas/t4127-jul.html",
+    "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas/t4127-jul/t4127-jul-payroll-deductions-formulas.html",
     "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas/t4127-jan.html",
     "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas/t4127-jan/t4127-jan-payroll-deductions-formulas-computer-programs.html",
     "https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/payroll/payroll-deductions-contributions/canada-pension-plan-cpp/cpp-contribution-rates-maximums-exemptions.html",
@@ -90,7 +92,7 @@
       "tax_brackets": [
         {
           "up_to": 50363.0,
-          "rate": 0.0506
+          "rate": 0.0614
         },
         {
           "up_to": 100728.0,
@@ -118,7 +120,7 @@
         }
       ],
       "surtax": [],
-      "k1p": 668.73
+      "k1p": 811.46
     },
     "MB": {
       "bpa": 15780.0,
@@ -163,7 +165,7 @@
       "k1p": 1284.42
     },
     "NL": {
-      "bpa": 11188.0,
+      "bpa": 15000.0,
       "tax_brackets": [
         {
           "up_to": 44678.0,
@@ -199,7 +201,7 @@
         }
       ],
       "surtax": [],
-      "k1p": 973.36
+      "k1p": 1305.0
     },
     "NS": {
       "bpa": 11932.0,
@@ -326,12 +328,16 @@
           "rate": 0.166
         },
         {
-          "up_to": null,
+          "up_to": 142520.0,
           "rate": 0.1762
         },
         {
-          "up_to": null,
+          "up_to": 200000.0,
           "rate": 0.19
+        },
+        {
+          "up_to": null,
+          "rate": 0.21
         }
       ],
       "surtax": [],
@@ -384,5 +390,5 @@
       "k1p": 1052.93
     }
   },
-  "checksum_sha256": "03892ea561fbd67eae5e88633e734544db8f0d1bc2a5d801867749b2aad8e148"
+  "checksum_sha256": "eaed609a3c47c68f9071a520388f8e6273898d37e2fd3280596224ae2aa70b1a"
 }

@@ -140,12 +140,34 @@ try {
         try {
             # Path-scoped commit — never picks up unrelated staged files.
             git commit -m 'chore: update CRA feed [local run]' -- cra_feed/output/
+            if ($LASTEXITCODE -ne 0) { throw "git commit failed with exit code $LASTEXITCODE" }
         } finally {
             $env:GIT_AUTHOR_NAME     = $null
             $env:GIT_AUTHOR_EMAIL    = $null
             $env:GIT_COMMITTER_NAME  = $null
             $env:GIT_COMMITTER_EMAIL = $null
         }
+
+        # Push — this is what triggers the Pages deploy workflow. Without it,
+        # the commit stays local and is DESTROYED by the next run's
+        # hard-reset-to-origin/main self-healing step, so the public feed
+        # silently goes stale. A push failure must be a hard error so the
+        # Task Scheduler run is marked failed and the log shows why.
+        git push origin main
+        if ($LASTEXITCODE -ne 0) {
+            # One retry after re-syncing: origin may have moved (e.g. a manual
+            # commit) between our fetch at the top of this run and now.
+            Write-Warning "git push failed; fetching and rebasing once before retry."
+            git fetch origin main
+            git rebase origin/main
+            if ($LASTEXITCODE -ne 0) {
+                git rebase --abort 2>&1 | Out-Null
+                throw "git push failed and rebase onto origin/main also failed."
+            }
+            git push origin main
+            if ($LASTEXITCODE -ne 0) { throw "git push failed after rebase retry with exit code $LASTEXITCODE" }
+        }
+        Write-Host "Pushed feed update to origin/main."
     } else {
         Write-Host "No changes to commit."
     }

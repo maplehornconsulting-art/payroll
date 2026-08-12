@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "jurisdiction": "CA",
   "effective_date": "2026-07-01",
-  "published_at": "2026-08-11T15:14:26Z",
+  "published_at": "2026-08-12T16:57:36Z",
   "source_urls": [
     "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas.html",
     "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas/t4127-jul.html",
@@ -390,5 +390,5 @@
       "k1p": 1052.93
     }
   },
-  "checksum_sha256": "e5c3a18a2e826e0343111ea550f5f90a6dd3fe3e006cf885de84265b41ef9b5b"
+  "checksum_sha256": "e8d5351109447e9b2795484bd487592d92e99679a66175d8187c521ca6eac815"
 }

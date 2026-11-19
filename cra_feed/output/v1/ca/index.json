@@ -10,5 +10,11 @@
     "published_at": "2026-11-18T20:25:43Z",
     "sha256": "066472769b9f82c220e9aa9b75d6feff90ece4f1956a5820022a864766710e9d",
     "file": "2026-07-01.json"
+  },
+  {
+    "effective_date": "2027-01-01",
+    "published_at": "2026-11-19T19:37:32Z",
+    "sha256": "d4322199f2b1ec9de158b23155a4c7f5c94bb60dbdc2876192898b6533165a9b",
+    "file": "2027-01-01.json"
   }
 ]

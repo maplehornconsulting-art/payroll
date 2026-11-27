@@ -1703,6 +1703,153 @@ def _parse_province_bpa(section_soup, prov_name: str) -> dict:
 # Public API
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Amounts outside the bracket tables (CEA, tax reductions, CPP base rate)
+# ---------------------------------------------------------------------------
+
+def _find_other_rates_table(soup: BeautifulSoup):
+    """Return the current-year "Other rates and amounts" table (Table 8.2).
+
+    The January edition also reprints the previous year's table further down
+    (Table 8.23); document order puts the current year first.
+    """
+    for table in soup.find_all("table"):
+        cap = table.find("caption")
+        if cap and "other rates and amounts" in cap.get_text(" ", strip=True).lower():
+            return table
+    return None
+
+
+def _parse_other_amounts(soup: BeautifulSoup) -> dict:
+    """Read the CEA and S2 columns of Table 8.2.
+
+    Returns ``{"cea": float | None, "s2": {"BC": float, "ON": float}}``.
+    ``cea`` is the federal row's Canada Employment Amount; ``s2`` holds the
+    basic amount of the provincial tax reduction (factor S) for the provinces
+    that have one.  Anything not found is simply left out, so a delta edition
+    that does not reprint the table yields ``{"cea": None, "s2": {}}``.
+    """
+    result: dict = {"cea": None, "s2": {}}
+    table = _find_other_rates_table(soup)
+    if table is None:
+        return result
+
+    cea_col = s2_col = None
+    known_codes = set(PROVINCE_NAME_TO_CODE.values())
+    for row in table.find_all("tr"):
+        texts = [c.get_text(" ", strip=True) for c in row.find_all(["th", "td"])]
+        if not texts:
+            continue
+        if cea_col is None and s2_col is None:
+            upper = [t.upper() for t in texts]
+            if "CEA" in upper or "S2" in upper:
+                cea_col = upper.index("CEA") if "CEA" in upper else None
+                s2_col = upper.index("S2") if "S2" in upper else None
+            continue
+
+        def _cell(col):
+            if col is None or col >= len(texts):
+                return None
+            try:
+                return _parse_num(texts[col])
+            except ValueError:
+                return None
+
+        first = texts[0].strip()
+        if first == "Federal":
+            cea = _cell(cea_col)
+            if cea is not None and _CEA_MIN_PLAUSIBLE <= cea <= _CEA_MAX_PLAUSIBLE:
+                result["cea"] = cea
+        elif first in known_codes:
+            s2 = _cell(s2_col)
+            if s2 is not None and s2 > 0:
+                result["s2"][first] = s2
+    return result
+
+
+_BC_REDUCTION_RE = re.compile(
+    r"Where\s+A\s*(?:≤|<=)\s*\$\s*([\d,]+(?:\.\d+)?)\s*,\s*"
+    r"S\s+is\s+equal\s+to\s+the\s+lesser\s+of.{0,80}?\(ii\)\s*\$\s*([\d,]+(?:\.\d+)?)"
+    r".{0,200}?A\s*(?:≤|<=)\s*\$\s*([\d,]+(?:\.\d+)?)"
+    r".{0,200}?[×x*]\s*([\d.]+)\s*%",
+    re.I | re.S,
+)
+
+
+def _parse_bc_reduction(soup: BeautifulSoup, s2: float | None = None) -> dict | None:
+    """Parse the British Columbia tax reduction (factor S) formula.
+
+    T4127 prints it as::
+
+        Where A ≤ $25,570, S is equal to the lesser of: (i) T4; (ii) $690
+        Where $25,570 < A ≤ $44,952, S is equal to the lesser of:
+            (i) T4; (ii) $690 – [(A – $25,570) × 3.56%]
+        Where A > $44,952 = $0
+
+    Returns ``{"base", "phase_from", "phase_to", "rate"}`` or *None* when the
+    formula is not in this document or fails a sanity check.  *s2* is the
+    Table 8.2 basic amount; when given it must agree with the formula.
+    """
+    text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
+    start = text.find("British Columbia S =")
+    if start < 0:
+        m_start = re.search(r"British Columbia\s+S\s*=", text)
+        if not m_start:
+            return None
+        start = m_start.start()
+    m = _BC_REDUCTION_RE.search(text, start, start + 1200)
+    if not m:
+        logger.warning("BC tax reduction heading found but the formula did not parse.")
+        return None
+    phase_from, base, phase_to = (_parse_num(m.group(i)) for i in (1, 2, 3))
+    rate = round(float(m.group(4)) / 100.0, 6)
+    if not (0 < phase_from < phase_to and 0 < rate < 1 and base > 0):
+        logger.warning(
+            "BC tax reduction failed sanity check: base=%s from=%s to=%s rate=%s",
+            base, phase_from, phase_to, rate,
+        )
+        return None
+    if s2 is not None and abs(s2 - base) > 0.005:
+        logger.warning(
+            "BC tax reduction base in the formula (%s) disagrees with Table 8.2 "
+            "S2 (%s); leaving it out of the feed.", base, s2,
+        )
+        return None
+    return {"base": base, "phase_from": phase_from, "phase_to": phase_to, "rate": rate}
+
+
+def _parse_cpp_base_rate(soup: BeautifulSoup) -> float | None:
+    """Base CPP employee rate from the "Base Canada Pension Plan" table (8.4).
+
+    The income-tax formulas need it separately from the total rate (factor F2
+    and the K2 credit use the base share of the contribution).
+    """
+    for table in soup.find_all("table"):
+        cap = table.find("caption")
+        cap_text = cap.get_text(" ", strip=True).lower() if cap else ""
+        if "base canada pension plan" not in cap_text:
+            continue
+        rate_col = None
+        for row in table.find_all("tr"):
+            texts = [c.get_text(" ", strip=True) for c in row.find_all(["th", "td"])]
+            if rate_col is None:
+                for i, t in enumerate(texts):
+                    if "rate" in t.lower():
+                        rate_col = i
+                        break
+                continue
+            if texts and texts[0].strip().upper().startswith("CPP") and rate_col < len(texts):
+                try:
+                    v = _parse_num(texts[rate_col])
+                except ValueError:
+                    return None
+                if v > 1:
+                    v /= 100.0
+                return round(v, 6) if 0 < v < 0.2 else None
+        return None  # first (current-year) table only
+    return None
+
+
 def parse(session=None, debug_dir=None) -> dict:
     """
     Fetch and parse the CRA T4127 Payroll Deductions Formulas publication.
@@ -1723,6 +1870,9 @@ def parse(session=None, debug_dir=None) -> dict:
       - effective_date: str  (ISO date, e.g. "2026-01-01")
       - source_url: str
       - provinces: dict[str, {"bpa": float, "tax_brackets": [...]}]
+        (BC may carry "reduction", ON may carry "reduction_base")
+      - cea: float | None            Canada Employment Amount
+      - cpp_base_rate: float | None  base CPP employee rate
     """
     if session is None:
         session = _requests.Session()
@@ -1931,11 +2081,25 @@ def parse(session=None, debug_dir=None) -> dict:
         dict.fromkeys([T4127_INDEX_URL, edition_url, doc_url, *prev_source_urls])
     )
 
+    # 10. Amounts printed outside the bracket tables. All optional: a delta
+    #     edition that does not reprint them simply leaves them out and the
+    #     consumer keeps its current values.
+    other = _parse_other_amounts(_data_soup)
+    cea = other["cea"] if other["cea"] is not None else federal.get("cea")
+    if "BC" in provinces:
+        bc_reduction = _parse_bc_reduction(_data_soup, other["s2"].get("BC"))
+        if bc_reduction:
+            provinces["BC"]["reduction"] = bc_reduction
+    if "ON" in provinces and other["s2"].get("ON") is not None:
+        provinces["ON"]["reduction_base"] = other["s2"]["ON"]
+    cpp_base_rate = _parse_cpp_base_rate(_data_soup)
+
     return {
         "bpaf": federal["bpaf"],
         "k1_rate": federal["k1_rate"],
         "tax_brackets": federal["tax_brackets"],
-        "cea": federal.get("cea"),
+        "cea": cea,
+        "cpp_base_rate": cpp_base_rate,
         "effective_date": effective_date,
         "source_urls": source_urls,
         "provinces": provinces,

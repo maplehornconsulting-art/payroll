@@ -68,6 +68,33 @@ def _current_year() -> int:
     return date.today().year
 
 
+def _target_year(year: int | None) -> int:
+    """Year whose table row to read.
+
+    The feed is stamped with the T4127 *effective* date, which CRA publishes
+    in November for the following January.  Reading the row for today's year
+    would then pair next year's tax tables with this year's CPP/EI figures,
+    so the caller passes the effective year; today's year is only the
+    fallback when none is given.
+    """
+    return int(year) if year else _current_year()
+
+
+def _rate(value: float | None) -> float | None:
+    """Percent cell -> fraction, rounded so 1.64 % is 0.0164, not 0.016399…"""
+    if value is None:
+        return None
+    if value > 1:
+        value /= 100.0
+    return round(value, 6)
+
+
+_MAX_CONTRIBUTION_HEADERS = (
+    ("maximum", "employee", "contribution"),
+    ("maximum annual contribution",),
+)
+
+
 def _normalize_header(text: str) -> str:
     """Normalize a table header string for robust matching.
 
@@ -177,7 +204,7 @@ def _extract_headers_and_data(table) -> tuple[list[str], list]:
     return header_texts, data_rows
 
 
-def _parse_cpp_page(html: str) -> tuple[dict, dict]:
+def _parse_cpp_page(html: str, year: int | None = None) -> tuple[dict, dict]:
     """
     Parse CPP and CPP2 data from the CRA CPP rates page.
 
@@ -185,7 +212,7 @@ def _parse_cpp_page(html: str) -> tuple[dict, dict]:
     The CPP2 dict may be empty if no CPP2 table is found on this page.
     """
     soup = BeautifulSoup(html, "lxml")
-    year = _current_year()
+    year = _target_year(year)
 
     cpp: dict = {}
     cpp2: dict = {}
@@ -234,15 +261,14 @@ def _parse_cpp_page(html: str) -> tuple[dict, dict]:
                 ("rate",),
             )
             exemption_col = _col_index(h_lower, "exemption")
+            max_col = _col_index_any(h_lower, *_MAX_CONTRIBUTION_HEADERS)
 
             for tds in data_rows:
                 if _row_year(tds, year_col) != year:
                     continue
                 try:
                     ympe_v = _cell_float(tds, ympe_col)
-                    rate_v = _cell_float(tds, rate_col)
-                    if rate_v is not None and rate_v > 1:
-                        rate_v /= 100.0
+                    rate_v = _rate(_cell_float(tds, rate_col))
                     exemption_v = _cell_float(tds, exemption_col) or 3500.0
                     if ympe_v is not None and rate_v is not None:
                         cpp = {
@@ -250,6 +276,9 @@ def _parse_cpp_page(html: str) -> tuple[dict, dict]:
                             "ympe": int(ympe_v),
                             "basic_exemption": int(exemption_v),
                         }
+                        max_v = _cell_float(tds, max_col)
+                        if max_v is not None:
+                            cpp["max_contribution"] = max_v
                     elif ympe_v is None or rate_v is None:
                         raise ValueError(
                             f"CPP row for {year} found but could not extract required "
@@ -275,30 +304,32 @@ def _parse_cpp_page(html: str) -> tuple[dict, dict]:
                 ("contribution rate",),
                 ("rate",),
             )
+            max_col = _col_index_any(h_lower, *_MAX_CONTRIBUTION_HEADERS)
 
             for tds in data_rows:
                 if _row_year(tds, year_col) != year:
                     continue
                 try:
                     yampe_v = _cell_float(tds, yampe_col)
-                    rate_v = _cell_float(tds, rate_col)
-                    if rate_v is not None and rate_v > 1:
-                        rate_v /= 100.0
+                    rate_v = _rate(_cell_float(tds, rate_col))
                     if yampe_v is not None and rate_v is not None:
                         cpp2 = {"rate": rate_v, "yampe": int(yampe_v)}
+                        max_v = _cell_float(tds, max_col)
+                        if max_v is not None:
+                            cpp2["max_contribution"] = max_v
                 except (ValueError, IndexError):
                     continue
 
     return cpp, cpp2
 
 
-def _parse_cpp2_page(html: str) -> dict:
+def _parse_cpp2_page(html: str, year: int | None = None) -> dict:
     """
     Parse CPP2 data from the dedicated CRA second-additional-CPP rates page.
 
     Returns a cpp2_dict for the current year, or an empty dict if not found.
     """
-    _cpp, cpp2 = _parse_cpp_page(html)
+    _cpp, cpp2 = _parse_cpp_page(html, year)
     if cpp2:
         return cpp2
 
@@ -306,7 +337,7 @@ def _parse_cpp2_page(html: str) -> dict:
     # lists YAMPE + rate in a table that looks like CPP1 without YMPE.
     # Fall back to a broader search: any table with year + additional/yampe/second.
     soup = BeautifulSoup(html, "lxml")
-    year = _current_year()
+    year = _target_year(year)
 
     for table in soup.find_all("table"):
         header_texts, data_rows = _extract_headers_and_data(table)
@@ -340,17 +371,20 @@ def _parse_cpp2_page(html: str) -> dict:
             ("contribution rate",),
             ("rate",),
         )
+        max_col = _col_index_any(h_lower, *_MAX_CONTRIBUTION_HEADERS)
 
         for tds in data_rows:
             if _row_year(tds, year_col) != year:
                 continue
             try:
                 yampe_v = _cell_float(tds, yampe_col)
-                rate_v = _cell_float(tds, rate_col)
-                if rate_v is not None and rate_v > 1:
-                    rate_v /= 100.0
+                rate_v = _rate(_cell_float(tds, rate_col))
                 if yampe_v is not None and rate_v is not None:
-                    return {"rate": rate_v, "yampe": int(yampe_v)}
+                    cpp2 = {"rate": rate_v, "yampe": int(yampe_v)}
+                    max_v = _cell_float(tds, max_col)
+                    if max_v is not None:
+                        cpp2["max_contribution"] = max_v
+                    return cpp2
             except (ValueError, IndexError):
                 continue
 
@@ -361,14 +395,14 @@ def _parse_cpp2_page(html: str) -> dict:
 # EI parser
 # ---------------------------------------------------------------------------
 
-def _parse_ei_page(html: str) -> dict:
+def _parse_ei_page(html: str, year: int | None = None) -> dict:
     """
     Parse EI data from the CRA EI premium rates page.
 
     Returns ei_dict for the current/most-recent year.
     """
     soup = BeautifulSoup(html, "lxml")
-    year = _current_year()
+    year = _target_year(year)
     ei: dict = {}
 
     for table in soup.find_all("table"):
@@ -407,6 +441,8 @@ def _parse_ei_page(html: str) -> dict:
             ("employee", "premium"),
         )
 
+        max_col = _col_index(h_lower, "maximum", "employee", "premium")
+
         # Skip the Quebec EI table (lower rate; we want the federal rate).
         # The Quebec table is identifiable by a caption or nearby heading
         # containing "Quebec" / "Québec".
@@ -430,14 +466,15 @@ def _parse_ei_page(html: str) -> dict:
                 continue
             try:
                 max_ins = _cell_float(tds, insurable_col)
-                rate_v = _cell_float(tds, rate_col)
-                if rate_v is not None and rate_v > 1:
-                    rate_v /= 100.0
+                rate_v = _rate(_cell_float(tds, rate_col))
                 if max_ins is not None and rate_v is not None:
                     ei = {
                         "rate": rate_v,
                         "max_insurable_earnings": int(max_ins),
                     }
+                    max_v = _cell_float(tds, max_col)
+                    if max_v is not None:
+                        ei["max_premium"] = max_v
                     break  # first matching row in this table wins
             except (ValueError, IndexError):
                 continue
@@ -451,20 +488,27 @@ def _parse_ei_page(html: str) -> dict:
 # Public API
 # ---------------------------------------------------------------------------
 
-def parse(session=None, debug_dir=None) -> dict:
+def parse(session=None, debug_dir=None, year: int | None = None) -> dict:
     """
     Fetch and parse CRA CPP and EI rate data.
 
     Returns a dict with keys:
-      - cpp:  {"rate": float, "ympe": int, "basic_exemption": int}
-      - cpp2: {"rate": float, "yampe": int}
-      - ei:   {"rate": float, "max_insurable_earnings": int}
+      - cpp:  {"rate": float, "ympe": int, "basic_exemption": int,
+               "max_contribution": float}
+      - cpp2: {"rate": float, "yampe": int, "max_contribution": float}
+      - ei:   {"rate": float, "max_insurable_earnings": int,
+               "max_premium": float}
+      (the ``max_*`` keys are omitted when the page has no such column)
       - source_urls: list[str]
 
     Parameters
     ----------
     session:
         Optional ``requests.Session``; a new one is created if *None*.
+    year:
+        Year whose rows to read — pass the year of the feed's effective date.
+        Defaults to today's year.  If CRA has not yet published that year's
+        row the parse fails rather than returning another year's figures.
     debug_dir:
         Optional path to a directory where fetched HTML is written on failure
         (``cpp.html``, ``cpp2.html``, ``ei.html``).  Mirrors the pattern used
@@ -485,7 +529,7 @@ def parse(session=None, debug_dir=None) -> dict:
     ei_html: str | None = None
 
     try:
-        cpp, cpp2 = _parse_cpp_page(cpp_html)
+        cpp, cpp2 = _parse_cpp_page(cpp_html, year)
     except Exception:
         if debug_dir is not None:
             debug_path = _Path(debug_dir) / "cpp.html"
@@ -502,7 +546,7 @@ def parse(session=None, debug_dir=None) -> dict:
         )
         cpp2_html = _fetch(session, CPP2_SOURCE_URL)
         try:
-            cpp2 = _parse_cpp2_page(cpp2_html)
+            cpp2 = _parse_cpp2_page(cpp2_html, year)
         except Exception:
             if debug_dir is not None:
                 debug_path = _Path(debug_dir) / "cpp2.html"
@@ -513,7 +557,7 @@ def parse(session=None, debug_dir=None) -> dict:
 
     ei_html = _fetch(session, EI_SOURCE_URL)
     try:
-        ei = _parse_ei_page(ei_html)
+        ei = _parse_ei_page(ei_html, year)
     except Exception:
         if debug_dir is not None:
             debug_path = _Path(debug_dir) / "ei.html"
@@ -529,7 +573,7 @@ def parse(session=None, debug_dir=None) -> dict:
             debug_path.write_text(cpp_html, encoding="utf-8")
             logger.info("Debug HTML written to %s", debug_path)
         raise ValueError(
-            f"Could not parse CPP data for year {_current_year()} from {CPP_SOURCE_URL}"
+            f"Could not parse CPP data for year {_target_year(year)} from {CPP_SOURCE_URL}"
         )
     if not ei:
         if debug_dir is not None:
@@ -538,7 +582,7 @@ def parse(session=None, debug_dir=None) -> dict:
             debug_path.write_text(ei_html, encoding="utf-8")
             logger.info("Debug HTML written to %s", debug_path)
         raise ValueError(
-            f"Could not parse EI data for year {_current_year()} from {EI_SOURCE_URL}"
+            f"Could not parse EI data for year {_target_year(year)} from {EI_SOURCE_URL}"
         )
     if not cpp2:
         logger.warning("CPP2 data not found; using zeros as placeholder")

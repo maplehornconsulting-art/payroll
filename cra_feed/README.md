@@ -134,16 +134,29 @@ Values are scraped automatically from official canada.ca pages each day.  A few 
 | `federal.bpaf.max` | number | Federal basic personal amount at full amount |
 | `federal.k1_rate` | number | Lowest federal tax rate (used to compute K1 non-refundable tax credit) |
 | `federal.tax_brackets` | array | Federal income tax brackets; `up_to: null` = top bracket |
+| `federal.cea` | number | Canada Employment Amount (optional) |
 | `cpp.rate` | number | Employee CPP contribution rate |
 | `cpp.ympe` | number | Year's Maximum Pensionable Earnings |
 | `cpp.basic_exemption` | number | Annual basic CPP exemption |
+| `cpp.max_contribution` | number | Maximum annual employee CPP contribution (optional) |
+| `cpp.base_rate` | number | Base CPP employee rate, excluding the enhancement (optional) |
 | `cpp2.rate` | number | Employee CPP2 contribution rate |
 | `cpp2.yampe` | number | Year's Additional Maximum Pensionable Earnings |
+| `cpp2.max_contribution` | number | Maximum annual employee CPP2 contribution (optional) |
 | `ei.rate` | number | Employee EI premium rate |
 | `ei.max_insurable_earnings` | number | Maximum insurable earnings for EI |
+| `ei.max_premium` | number | Maximum annual employee EI premium (optional) |
 | `provinces.<code>.bpa` | number | Provincial/territorial basic personal amount |
 | `provinces.<code>.tax_brackets` | array | Provincial tax brackets |
+| `provinces.BC.reduction` | object | BC tax reduction: `base`, `phase_from`, `phase_to`, `rate` (optional) |
+| `provinces.ON.reduction_base` | number | Ontario tax reduction basic amount S2 (optional) |
 | `checksum_sha256` | string | SHA-256 of canonical JSON (keys sorted, this field = `""`) |
+
+CPP, CPP2 and EI figures are those of the **year of `effective_date`**, not of the
+day the scraper runs: the January edition is scraped the November before. If CRA has
+not yet published that year's row, the scrape fails instead of publishing another
+year's figures. Optional fields are omitted (never `null`) when the source page does
+not carry them; consumers should then keep their current value.
 
 ---
 

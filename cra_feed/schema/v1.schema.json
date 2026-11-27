@@ -139,6 +139,11 @@
         },
         "tax_brackets": {
           "$ref": "#/$defs/TaxBracketsArray"
+        },
+        "cea": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Canada Employment Amount (T4127 Table 8.2). Optional."
         }
       }
     },
@@ -163,6 +168,17 @@
           "type": "number",
           "minimum": 0,
           "description": "Annual basic CPP exemption."
+        },
+        "max_contribution": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum annual employee CPP contribution. Optional."
+        },
+        "base_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Base CPP employee rate, excluding the first additional (enhancement) rate (0–1). Optional."
         }
       }
     },
@@ -182,6 +198,11 @@
           "type": "number",
           "minimum": 0,
           "description": "Year's Additional Maximum Pensionable Earnings."
+        },
+        "max_contribution": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum annual employee second additional CPP contribution. Optional."
         }
       }
     },
@@ -201,6 +222,11 @@
           "type": "number",
           "minimum": 0,
           "description": "Maximum insurable earnings for EI."
+        },
+        "max_premium": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Maximum annual employee EI premium. Optional."
         }
       }
     },
@@ -210,6 +236,35 @@
       "prefixItems": [{"type": "number"}, {"type": "number"}],
       "minItems": 2,
       "maxItems": 2
+    },
+    "TaxReduction": {
+      "type": "object",
+      "description": "Provincial tax reduction (T4127 factor S) that phases out with income: the full base up to phase_from, reduced by rate on income above it, nil above phase_to. Published for British Columbia.",
+      "required": ["base", "phase_from", "phase_to", "rate"],
+      "additionalProperties": false,
+      "properties": {
+        "base": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Full reduction amount (S2)."
+        },
+        "phase_from": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Annual income at which the phase-out starts."
+        },
+        "phase_to": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Annual income above which the reduction is nil."
+        },
+        "rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Phase-out rate (0–1)."
+        }
+      }
     },
     "ProvinceData": {
       "type": "object",
@@ -236,6 +291,14 @@
             "$ref": "#/$defs/SurtaxBand"
           },
           "default": []
+        },
+        "reduction": {
+          "$ref": "#/$defs/TaxReduction"
+        },
+        "reduction_base": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Basic amount S2 of a tax reduction whose formula is not a simple phase-out (Ontario). Optional."
         }
       }
     },

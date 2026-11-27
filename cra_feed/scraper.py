@@ -81,12 +81,34 @@ def _canonical_checksum(data: dict) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def _province_to_dict(prov: "ProvinceData") -> dict:
-    """Serialize a ProvinceData model, omitting k1p when it is None."""
-    d = prov.model_dump()
-    if d["k1p"] is None:
-        d.pop("k1p")
-    return d
+# Optional feed fields. They are left out of the JSON when the source page
+# did not yield them (never written as null), so a consumer can tell "not
+# published in this edition" from a value.
+_OPTIONAL_FIELDS = {
+    "federal": ("cea",),
+    "cpp": ("max_contribution", "base_rate"),
+    "cpp2": ("max_contribution",),
+    "ei": ("max_premium",),
+}
+_OPTIONAL_PROVINCE_FIELDS = ("k1p", "reduction", "reduction_base")
+
+
+def _drop_missing_optionals(data: dict) -> dict:
+    """Remove optional fields whose value is None, in place. Returns *data*."""
+    for section, keys in _OPTIONAL_FIELDS.items():
+        for key in keys:
+            if data.get(section, {}).get(key) is None:
+                data.get(section, {}).pop(key, None)
+    for prov in data.get("provinces", {}).values():
+        for key in _OPTIONAL_PROVINCE_FIELDS:
+            if prov.get(key) is None:
+                prov.pop(key, None)
+    return data
+
+
+def feed_to_dict(feed: "CRAFeed") -> dict:
+    """The feed exactly as it is published (and as its checksum was computed)."""
+    return _drop_missing_optionals(feed.model_dump())
 
 
 # ---------------------------------------------------------------------------
@@ -97,9 +119,14 @@ def build_feed(debug_dir: Path | None = None) -> CRAFeed:
     session = _make_session()
 
     t4127_data = t4127.parse(session, debug_dir=debug_dir)
-    cpp_ei_data = cpp_ei.parse(session, debug_dir=debug_dir)
-
     effective_date: str = t4127_data["effective_date"]
+    # CPP/EI figures must be those of the year the feed takes effect, not of
+    # the day the scraper happens to run (the January edition is published
+    # the November before).
+    cpp_ei_data = cpp_ei.parse(
+        session, debug_dir=debug_dir, year=int(effective_date[:4])
+    )
+
     published_at: str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     source_urls = [
@@ -111,9 +138,12 @@ def build_feed(debug_dir: Path | None = None) -> CRAFeed:
         bpaf=BPAFRange(**t4127_data["bpaf"]),
         k1_rate=t4127_data["k1_rate"],
         tax_brackets=[TaxBracket(**b) for b in t4127_data["tax_brackets"]],
+        cea=t4127_data.get("cea"),
     )
 
-    cpp = CPPData(**cpp_ei_data["cpp"])
+    cpp = CPPData(
+        **cpp_ei_data["cpp"], base_rate=t4127_data.get("cpp_base_rate")
+    )
     cpp2 = CPP2Data(**cpp_ei_data["cpp2"])
     ei = EIData(**cpp_ei_data["ei"])
 
@@ -124,6 +154,8 @@ def build_feed(debug_dir: Path | None = None) -> CRAFeed:
             tax_brackets=[TaxBracket(**b) for b in pdata["tax_brackets"]],
             surtax=pdata.get("surtax", []),
             k1p=pdata.get("k1p"),
+            reduction=pdata.get("reduction"),
+            reduction_base=pdata.get("reduction_base"),
         )
         for code, pdata in t4127_data.get("provinces", {}).items()
     }
@@ -145,9 +177,10 @@ def build_feed(debug_dir: Path | None = None) -> CRAFeed:
         "cpp": cpp.model_dump(),
         "cpp2": cpp2.model_dump(),
         "ei": ei.model_dump(),
-        "provinces": {k: _province_to_dict(v) for k, v in provinces.items()},
+        "provinces": {k: v.model_dump() for k, v in provinces.items()},
         "checksum_sha256": "",  # placeholder — filled below
     }
+    _drop_missing_optionals(raw)
 
     raw["checksum_sha256"] = _canonical_checksum(raw)
 
@@ -166,11 +199,7 @@ def build_feed(debug_dir: Path | None = None) -> CRAFeed:
 def write_outputs(feed: CRAFeed) -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    feed_dict = feed.model_dump()
-    # k1p is optional; strip it when it is None so JSON output stays clean.
-    for prov in feed_dict.get("provinces", {}).values():
-        if prov.get("k1p") is None:
-            prov.pop("k1p", None)
+    feed_dict = feed_to_dict(feed)
 
     def _write(path: Path, data: dict) -> None:
         path.write_text(

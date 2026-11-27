@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "jurisdiction": "CA",
   "effective_date": "2027-01-01",
-  "published_at": "2026-11-26T20:32:12Z",
+  "published_at": "2026-11-27T08:07:55Z",
   "source_urls": [
     "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas.html",
     "https://www.canada.ca/en/revenue-agency/services/forms-publications/payroll/t4127-payroll-deductions-formulas/t4127-jan.html",
@@ -38,20 +38,25 @@
         "up_to": null,
         "rate": 0.33
       }
-    ]
+    ],
+    "cea": 1540.0
   },
   "cpp": {
-    "rate": 0.059500000000000004,
-    "ympe": 74600.0,
-    "basic_exemption": 3500.0
+    "rate": 0.0575,
+    "ympe": 76700.0,
+    "basic_exemption": 3500.0,
+    "max_contribution": 4209.0,
+    "base_rate": 0.0475
   },
   "cpp2": {
     "rate": 0.04,
-    "yampe": 85000.0
+    "yampe": 87400.0,
+    "max_contribution": 428.0
   },
   "ei": {
-    "rate": 0.0163,
-    "max_insurable_earnings": 68900.0
+    "rate": 0.0164,
+    "max_insurable_earnings": 70800.0,
+    "max_premium": 1161.12
   },
   "provinces": {
     "AB": {
@@ -118,7 +123,13 @@
         }
       ],
       "surtax": [],
-      "k1p": 740.1
+      "k1p": 740.1,
+      "reduction": {
+        "base": 690.0,
+        "phase_from": 25570.0,
+        "phase_to": 44952.0,
+        "rate": 0.0356
+      }
     },
     "MB": {
       "bpa": 15780.0,
@@ -308,7 +319,8 @@
           0.36
         ]
       ],
-      "k1p": 669.68
+      "k1p": 669.68,
+      "reduction_base": 306.0
     },
     "PE": {
       "bpa": 15000.0,
@@ -388,5 +400,5 @@
       "k1p": 1080.26
     }
   },
-  "checksum_sha256": "9e0475f131b0469fd977dd2a104acdfba5c48f886d8f0b925f3d81a909a2511c"
+  "checksum_sha256": "811ee7985a84fea5599e0612c1f4570979da8c9c07fddd417fb8a9be2f871632"
 }
